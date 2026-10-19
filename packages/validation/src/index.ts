@@ -1,131 +1,252 @@
-import type { EventType, PayloadMap, Result, SignedEvent } from '../../domain/src/protocol.js';
-import { err } from '../../domain/src/protocol.js';
-import { verifyAttestation, verifyEvent } from '../../crypto/src/index.js';
+/**
+ * L1 validation (spec section 7): stateless and clock-free. It knows nothing about accounts, deals, balances or
+ * policy. The only time input is the receipt time `acceptedAtMs`.
+ *
+ * Why seller-only rules (e.g. DeliverableSubmitted) are NOT checked here: the payload carries no seller field, so
+ * the validator cannot know the deal's seller. Those signer rules live in the deal machine (L3).
+ */
+import type { ErrorCode, EventType, PayloadMap, Result, SignedEvent } from '../../domain/src/protocol.js';
+import { AMOUNT_MAX, AMOUNT_MIN, EVENT_TYPES, TIMESTAMP_SKEW_MS, err, ok } from '../../domain/src/protocol.js';
+import { CanonicalError, canonical, verifyAttestation, verifyEvent } from '../../crypto/src/index.js';
 
 const HASH = /^[a-f0-9]{64}$/;
+const SALT = /^[a-f0-9]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-const FIELDS: Record<EventType, readonly string[]> = {
-  AccountCreated: ['pubkey', 'recovery_commitment'], DealCreated: ['deal_id', 'buyer', 'seller', 'amount', 'criteria_hash', 'deadline'],
-  DealConsented: ['deal_id', 'seller', 'consent_sig'], EscrowFunded: ['deal_id', 'from', 'amount'],
-  DeliverableSubmitted: ['deal_id', 'content_hash', 'precheck_ref'], PrecheckCompleted: ['deal_id', 'content_hash', 'result', 'checker_id', 'sig'],
-  DealAccepted: ['deal_id', 'by'], DealRejected: ['deal_id', 'by', 'reason_hash'], DisputeOpened: ['deal_id', 'by'],
-  JuryAssigned: ['deal_id', 'jurors', 'appeal_round'], JuryVoted: ['deal_id', 'juror', 'vote', 'appeal_round', 'sig'],
-  DisputeResolved: ['deal_id', 'outcome', 'appeal_round'], EscrowReleased: ['deal_id', 'to', 'amount'], FeeBurned: ['deal_id', 'amount'],
-  ReputationEvent: ['account', 'counterparty', 'deal_id', 'delta', 'reason_hash', 'both_sigs'],
-  TreasurySpend: ['recipient', 'amount', 'purpose_hash', 'nonce', 'approvals'],
-  CurrencyIssued: ['recipient', 'amount', 'policy_id', 'basis_hash', 'grant_kind', 'approvals'],
-};
+const POLICY_ID = /^[a-z0-9._-]{1,64}$/;
+const ED25519_SPKI_PREFIX = '302a300506032b6570032100';
+
 type RecordValue = Record<string, unknown>;
-function fail(code: string, path: string, message = `Invalid ${path}`): Result<never> { return err(code, message, path); }
-function isObject(value: unknown): value is RecordValue { return typeof value === 'object' && value !== null && !Array.isArray(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null); }
-function validIso(value: unknown): value is string { return typeof value === 'string' && ISO.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value; }
-function checkPubkey(value: unknown, path: string): Result<true> {
-  if (typeof value !== 'string') return fail('FIELD_FORMAT', path);
+type FieldCheck = (value: unknown, path: string) => Result<true>;
+const OK: Result<true> = ok(true);
+
+function fail(code: ErrorCode, path: string, message = `Invalid ${path}`): Result<never> { return err(code, message, path); }
+function isObject(value: unknown): value is RecordValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+function validIso(value: unknown): value is string {
+  return typeof value === 'string' && ISO.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+function strictBase64(value: string): Buffer | null {
   const bytes = Buffer.from(value, 'base64');
-  if (bytes.toString('base64') !== value || bytes.length !== 44 || bytes.subarray(0, 12).toString('hex') !== '302a300506032b6570032100') return fail('FIELD_FORMAT', path);
-  return { ok: true, value: true };
+  return bytes.toString('base64') === value ? bytes : null;
 }
-function checkSig(value: unknown, path: string): Result<true> {
+
+const pubkey: FieldCheck = (value, path) => {
   if (typeof value !== 'string') return fail('FIELD_FORMAT', path);
-  const bytes = Buffer.from(value, 'base64');
-  return bytes.toString('base64') === value && bytes.length === 64 ? { ok: true, value: true } : fail('FIELD_FORMAT', path);
+  const bytes = strictBase64(value);
+  return bytes !== null && bytes.length === 44 && bytes.subarray(0, 12).toString('hex') === ED25519_SPKI_PREFIX ? OK : fail('FIELD_FORMAT', path);
+};
+const sig: FieldCheck = (value, path) => {
+  if (typeof value !== 'string') return fail('FIELD_FORMAT', path);
+  const bytes = strictBase64(value);
+  return bytes !== null && bytes.length === 64 ? OK : fail('FIELD_FORMAT', path);
+};
+const hash: FieldCheck = (value, path) => typeof value === 'string' && HASH.test(value) ? OK : fail('FIELD_FORMAT', path);
+const nullableHash: FieldCheck = (value, path) => value === null ? OK : hash(value, path);
+const uuid: FieldCheck = (value, path) => typeof value === 'string' && UUID.test(value) ? OK : fail('FIELD_FORMAT', path);
+const iso: FieldCheck = (value, path) => validIso(value) ? OK : fail('FIELD_FORMAT', path);
+const amount: FieldCheck = (value, path) =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= AMOUNT_MIN && value <= AMOUNT_MAX ? OK : fail('AMOUNT', path);
+const positiveInt: FieldCheck = (value, path) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 ? OK : fail('FIELD_FORMAT', path);
+function oneOfStrings(...allowed: readonly string[]): FieldCheck {
+  return (value, path) => {
+    if (typeof value === 'string') for (const candidate of allowed) if (value === candidate) return OK;
+    return fail('FIELD_FORMAT', path);
+  };
 }
-function checkApprovalList(value: unknown): Result<true> {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 7) return fail('LIMIT', 'payload.approvals');
-  const signers = new Set<string>();
-  for (const [index, item] of value.entries()) {
-    if (!isObject(item) || Object.keys(item).sort().join(',') !== 'sig,signer') return fail('PAYLOAD', `payload.approvals[${index}]`);
-    const key = checkPubkey(item.signer, `payload.approvals[${index}].signer`);
-    const sig = checkSig(item.sig, `payload.approvals[${index}].sig`);
-    if (!key.ok) return key; if (!sig.ok) return sig;
-    if (signers.has(item.signer as string)) return fail('LIMIT', `payload.approvals[${index}].signer`, 'Duplicate approver');
-    signers.add(item.signer as string);
-  }
-  return { ok: true, value: true };
+function oneOfNumbers(...allowed: readonly number[]): FieldCheck {
+  return (value, path) => {
+    if (typeof value === 'number') for (const candidate of allowed) if (value === candidate) return OK;
+    return fail('FIELD_FORMAT', path);
+  };
 }
-function checkPayload(type: EventType, p: RecordValue, event: SignedEvent, now: number): Result<true> {
-  const expected = FIELDS[type];
-  const actual = Object.keys(p).sort();
-  if (actual.some((key) => key === '__proto__' || key === 'constructor' || key === 'prototype')) return fail('UNKNOWN_FIELD', 'payload');
-  for (const field of expected) if (!Object.hasOwn(p, field)) return fail('MISSING_FIELD', `payload.${field}`);
-  for (const field of actual) if (!expected.includes(field)) return fail('UNKNOWN_FIELD', `payload.${field}`);
-  for (const field of ['deal_id']) if (field in p && (typeof p[field] !== 'string' || !UUID.test(p[field]))) return fail('FIELD_FORMAT', `payload.${field}`);
-  for (const field of ['pubkey', 'buyer', 'seller', 'from', 'checker_id', 'by', 'juror', 'account', 'counterparty', 'recipient', 'to']) {
-    if (field in p) { const result = checkPubkey(p[field], `payload.${field}`); if (!result.ok) return result; }
+const round: FieldCheck = oneOfNumbers(0, 1);
+const party: FieldCheck = oneOfStrings('buyer', 'seller');
+const policyId: FieldCheck = (value, path) => typeof value === 'string' && POLICY_ID.test(value) ? OK : fail('FIELD_FORMAT', path);
+const salt: FieldCheck = (value, path) => typeof value === 'string' && (value === '' || SALT.test(value)) ? OK : fail('FIELD_FORMAT', path);
+
+/** Structural limit of spec section 3: 2 to 3 unique approvals. */
+const approvals: FieldCheck = (value, path) => {
+  if (!Array.isArray(value) || value.length < 2 || value.length > 3) return fail('LIMIT', path, 'Approvals must contain 2 to 3 entries');
+  const seen = new Set<string>();
+  for (let index = 0; index < value.length; index += 1) {
+    const item: unknown = value[index];
+    const itemPath = `${path}[${index}]`;
+    if (!isObject(item) || Object.keys(item).sort().join(',') !== 'sig,signer') return fail('PAYLOAD', itemPath);
+    const key = pubkey(item.signer, `${itemPath}.signer`); if (!key.ok) return key;
+    const signature = sig(item.sig, `${itemPath}.sig`); if (!signature.ok) return signature;
+    const signer = item.signer;
+    if (typeof signer !== 'string' || seen.has(signer)) return fail('LIMIT', `${itemPath}.signer`, 'Duplicate approver');
+    seen.add(signer);
   }
-  for (const field of ['recovery_commitment', 'criteria_hash', 'content_hash', 'reason_hash', 'purpose_hash', 'nonce', 'basis_hash']) {
-    if (field in p && (typeof p[field] !== 'string' || !HASH.test(p[field]))) return fail('FIELD_FORMAT', `payload.${field}`);
+  return OK;
+};
+
+/** Jurors: 3 (round 0) or 5 (round 1) unique keys; the exact count is tied to appeal_round in the cross-field step. */
+const jurors: FieldCheck = (value, path) => {
+  if (!Array.isArray(value) || (value.length !== 3 && value.length !== 5)) return fail('LIMIT', path, 'Jurors must contain exactly 3 or 5 keys');
+  const seen = new Set<string>();
+  for (let index = 0; index < value.length; index += 1) {
+    const item: unknown = value[index];
+    const key = pubkey(item, `${path}[${index}]`); if (!key.ok) return key;
+    if (typeof item !== 'string' || seen.has(item)) return fail('LIMIT', `${path}[${index}]`, 'Duplicate juror');
+    seen.add(item);
   }
-  for (const field of ['consent_sig', 'sig']) if (field in p) { const result = checkSig(p[field], `payload.${field}`); if (!result.ok) return result; }
-  if (p.amount !== undefined && (!Number.isSafeInteger(p.amount) || (p.amount as number) <= 0)) return fail('AMOUNT', 'payload.amount');
-  if (type === 'DealCreated') {
-    if (p.buyer === p.seller) return fail('PAYLOAD', 'payload.seller', 'Buyer and seller must differ');
-    if (!validIso(p.deadline) || Date.parse(p.deadline) <= Date.parse(event.timestamp)) return fail('FIELD_FORMAT', 'payload.deadline');
+  return OK;
+};
+
+/**
+ * Table-driven exact payload schema. The mapped type forces one validator per payload field, so adding a field to
+ * PayloadMap without a validator is a compile error and no field can silently skip validation.
+ */
+type Schema = { readonly [K in EventType]: { readonly [F in keyof PayloadMap[K]]-?: FieldCheck } };
+const SCHEMA: Schema = {
+  AccountCreated: { pubkey, recovery_commitment: hash, invite_ref: nullableHash },
+  AccountInvited: { invitee: pubkey, expires: iso },
+  KeyRotated: { old_pubkey: pubkey, new_pubkey: pubkey, recovery_pubkey: pubkey, new_recovery_commitment: hash, sig },
+  DealCreated: { deal_id: uuid, buyer: pubkey, seller: pubkey, amount, criteria_hash: hash, deadline: iso },
+  DealConsented: { deal_id: uuid, seller: pubkey, consent_sig: sig },
+  EscrowFunded: { deal_id: uuid, from: pubkey, amount },
+  DeliverableSubmitted: { deal_id: uuid, content_hash: hash, precheck_ref: nullableHash },
+  PrecheckCompleted: { deal_id: uuid, content_hash: hash, result: oneOfStrings('pass', 'fail', 'inconclusive'), checker_id: pubkey, sig },
+  DealAccepted: { deal_id: uuid, by: pubkey },
+  DealRejected: { deal_id: uuid, by: pubkey, reason_hash: hash },
+  DealAutoAccepted: { deal_id: uuid, by: pubkey },
+  DealExpired: { deal_id: uuid, by: pubkey },
+  DisputeOpened: { deal_id: uuid, by: pubkey },
+  JuryAssigned: { deal_id: uuid, jurors, appeal_round: round },
+  JuryVoted: { deal_id: uuid, juror: pubkey, vote: party, appeal_round: round, sig },
+  JurorReplaced: { deal_id: uuid, appeal_round: round, missing_juror: pubkey, replacement: pubkey },
+  DisputeResolved: { deal_id: uuid, outcome: party, appeal_round: round },
+  AppealOpened: { deal_id: uuid, by: pubkey, fee_amount: amount },
+  AppealFeeSettled: { deal_id: uuid, outcome: oneOfStrings('returned', 'burned'), amount },
+  EscrowReleased: { deal_id: uuid, to: pubkey, amount },
+  FeeBurned: { deal_id: uuid, amount },
+  ReputationEvent: { account: pubkey, counterparty: pubkey, deal_id: uuid, delta: oneOfNumbers(-1, 0, 1), reason_hash: hash },
+  EvidenceRevealed: { deal_id: uuid, by: pubkey, kind: oneOfStrings('criteria', 'reason', 'purpose', 'precheck-report'), salt },
+  TreasurySpend: { recipient: pubkey, amount, purpose_hash: hash, nonce: hash, approvals },
+  CurrencyIssued: { recipient: pubkey, amount, policy_id: policyId, basis_hash: hash, grant_kind: oneOfStrings('activity', 'beta-grant'), nonce: hash, approvals },
+  RelayKeyRotated: { key_id: hash, pubkey, valid_from_sequence: positiveInt, approvals },
+  PolicyUpdated: { policy_version: positiveInt, params_hash: hash, activation_sequence: positiveInt, approvals },
+};
+
+/** Payload field that must equal the event signer (payload-only signer rules of spec section 5). */
+const SIGNER_FIELD: { readonly [K in EventType]?: keyof PayloadMap[K] & string } = {
+  AccountCreated: 'pubkey', KeyRotated: 'new_pubkey', DealCreated: 'buyer', DealConsented: 'seller',
+  EscrowFunded: 'from', PrecheckCompleted: 'checker_id', DealAccepted: 'by', DealRejected: 'by',
+  DealAutoAccepted: 'by', DealExpired: 'by', DisputeOpened: 'by', JuryVoted: 'juror', AppealOpened: 'by',
+  ReputationEvent: 'account', EvidenceRevealed: 'by',
+};
+
+function isEventType(value: unknown): value is EventType {
+  for (const known of EVENT_TYPES) if (value === known) return true;
+  return false;
+}
+
+function checkPayloadShape(type: EventType, p: RecordValue): Result<true> {
+  const schema: Readonly<Record<string, FieldCheck>> = SCHEMA[type];
+  for (const key of Object.keys(p)) if (!Object.hasOwn(schema, key)) return fail('UNKNOWN_FIELD', `payload.${key}`);
+  for (const field of Object.keys(schema)) if (!Object.hasOwn(p, field)) return fail('MISSING_FIELD', `payload.${field}`);
+  for (const [field, check] of Object.entries(schema)) {
+    const result = check(p[field], `payload.${field}`);
+    if (!result.ok) return result;
   }
-  if (type === 'DeliverableSubmitted' && p.precheck_ref !== null && (typeof p.precheck_ref !== 'string' || !HASH.test(p.precheck_ref))) return fail('FIELD_FORMAT', 'payload.precheck_ref');
-  if (type === 'PrecheckCompleted' && !['pass', 'fail', 'inconclusive'].includes(String(p.result))) return fail('FIELD_FORMAT', 'payload.result');
-  if (type === 'JuryAssigned') {
-    const length = p.appeal_round === 0 ? 3 : p.appeal_round === 1 ? 5 : 0;
-    if (length === 0 || !Array.isArray(p.jurors) || p.jurors.length !== length || new Set(p.jurors).size !== p.jurors.length) return fail('LIMIT', 'payload.jurors');
-    for (const [index, juror] of p.jurors.entries()) { const result = checkPubkey(juror, `payload.jurors[${index}]`); if (!result.ok) return result; }
+  return OK;
+}
+
+function checkCrossFields(type: EventType, p: RecordValue, acceptedAtMs: number): Result<true> {
+  switch (type) {
+    case 'DealCreated':
+      if (p.buyer === p.seller) return fail('PAYLOAD', 'payload.seller', 'Buyer and seller must differ');
+      if (typeof p.deadline !== 'string' || !(Date.parse(p.deadline) > acceptedAtMs)) return fail('TIMESTAMP', 'payload.deadline', 'Deadline must be later than acceptedAt');
+      return OK;
+    case 'ReputationEvent':
+      return p.account === p.counterparty ? fail('PAYLOAD', 'payload.counterparty', 'Account and counterparty must differ') : OK;
+    case 'JuryAssigned': {
+      const expected = p.appeal_round === 0 ? 3 : 5;
+      return Array.isArray(p.jurors) && p.jurors.length === expected ? OK : fail('LIMIT', 'payload.jurors', p.appeal_round === 0 ? 'Round 0 requires 3 jurors' : 'Round 1 requires 5 jurors');
+    }
+    case 'EvidenceRevealed':
+      if (p.kind === 'precheck-report') return p.salt === '' ? OK : fail('FIELD_FORMAT', 'payload.salt', 'precheck-report salt must be the empty string');
+      return p.salt !== '' ? OK : fail('FIELD_FORMAT', 'payload.salt', 'Salt must be 64 lowercase hex characters');
+    case 'AccountCreated': case 'AccountInvited': case 'KeyRotated': case 'DealConsented': case 'EscrowFunded':
+    case 'DeliverableSubmitted': case 'PrecheckCompleted': case 'DealAccepted': case 'DealRejected': case 'DealAutoAccepted':
+    case 'DealExpired': case 'DisputeOpened': case 'JuryVoted': case 'JurorReplaced': case 'DisputeResolved': case 'AppealOpened':
+    case 'AppealFeeSettled': case 'EscrowReleased': case 'FeeBurned': case 'TreasurySpend': case 'CurrencyIssued':
+    case 'RelayKeyRotated': case 'PolicyUpdated':
+      return OK;
+    default: { const _x: never = type; return _x; }
   }
-  if (type === 'JuryVoted' && (!['buyer', 'seller'].includes(String(p.vote)) || ![0, 1].includes(Number(p.appeal_round)))) return fail('FIELD_FORMAT', 'payload.vote');
-  if (type === 'DisputeResolved' && (!['buyer', 'seller'].includes(String(p.outcome)) || ![0, 1].includes(Number(p.appeal_round)))) return fail('FIELD_FORMAT', 'payload.outcome');
-  if (type === 'ReputationEvent') {
-    if (![-1, 0, 1].includes(Number(p.delta)) || p.account === p.counterparty || !isObject(p.both_sigs) || Object.keys(p.both_sigs).sort().join(',') !== 'account_sig,counterparty_sig') return fail('PAYLOAD', 'payload.both_sigs');
-    for (const key of ['account_sig', 'counterparty_sig']) { const result = checkSig(p.both_sigs[key], `payload.both_sigs.${key}`); if (!result.ok) return result; }
-    const body = { account: p.account, counterparty: p.counterparty, deal_id: p.deal_id, delta: p.delta, reason_hash: p.reason_hash };
-    if (!verifyAttestation('reputation-account', body, p.both_sigs.account_sig as string, p.account as string)
-      || !verifyAttestation('reputation-counterparty', body, p.both_sigs.counterparty_sig as string, p.counterparty as string)) return fail('ATTESTATION', 'payload.both_sigs');
+}
+
+function checkSignerAuthority(type: EventType, p: RecordValue, signer: unknown): Result<true> {
+  const field = SIGNER_FIELD[type];
+  if (field !== undefined && p[field] !== signer) return fail('SIGNER_AUTHORITY', 'signer', `Signer must equal payload.${field}`);
+  if (type === 'TreasurySpend' || type === 'CurrencyIssued' || type === 'RelayKeyRotated' || type === 'PolicyUpdated') {
+    const list = p.approvals;
+    const listed = Array.isArray(list) && list.some((entry: unknown) => isObject(entry) && entry.signer === signer);
+    if (!listed) return fail('SIGNER_AUTHORITY', 'signer', 'Signer must be one of the listed approvers');
   }
-  if (type === 'CurrencyIssued' && (typeof p.policy_id !== 'string' || !/^[a-z0-9._-]{1,64}$/.test(p.policy_id) || !['activity', 'beta-grant'].includes(String(p.grant_kind)))) return fail('FIELD_FORMAT', 'payload.policy_id');
-  if (type === 'TreasurySpend' || type === 'CurrencyIssued') { const result = checkApprovalList(p.approvals); if (!result.ok) return result; }
+  return OK;
+}
+
+function checkPayloadAttestations(type: EventType, p: RecordValue): Result<true> {
   if (type === 'PrecheckCompleted') {
     const body = { deal_id: p.deal_id, content_hash: p.content_hash, result: p.result, checker_id: p.checker_id };
-    if (!verifyAttestation('precheck', body, p.sig as string, p.checker_id as string)) return fail('ATTESTATION', 'payload.sig');
+    if (!verifyAttestation('precheck', body, p.sig, p.checker_id)) return fail('ATTESTATION', 'payload.sig');
   }
   if (type === 'JuryVoted') {
     const body = { deal_id: p.deal_id, juror: p.juror, vote: p.vote, appeal_round: p.appeal_round };
-    if (!verifyAttestation('jury-vote', body, p.sig as string, p.juror as string)) return fail('ATTESTATION', 'payload.sig');
+    if (!verifyAttestation('jury-vote', body, p.sig, p.juror)) return fail('ATTESTATION', 'payload.sig');
   }
-  return { ok: true, value: true };
+  // KeyRotated.sig needs the recovery commitment of the old account and is verified in L2/L3.
+  return OK;
 }
 
-/** Validate an untrusted v1 event using an injected current time in milliseconds. */
-export function validateEvent(input: unknown, now: number): Result<SignedEvent> {
-  try { return validateEventUnchecked(input, now); }
-  catch { return fail('PAYLOAD', '$', 'Malformed event input'); }
+/** Single, documented narrowing point: only called after every structural check has passed. */
+function asValidatedEvent(input: RecordValue): SignedEvent {
+  return input as unknown as SignedEvent;
 }
 
-function validateEventUnchecked(input: unknown, now: number): Result<SignedEvent> {
-  if (!Number.isFinite(now)) return fail('TIMESTAMP', 'timestamp', 'Validation clock must be finite');
+/**
+ * Validate an untrusted v1 event. `acceptedAtMs` is the receipt time (epoch ms), never a wall clock.
+ * Cheapest checks first; no state, no balances, no policy.
+ */
+export function validateEvent(input: unknown, acceptedAtMs: number): Result<SignedEvent> {
+  if (typeof acceptedAtMs !== 'number' || !Number.isSafeInteger(acceptedAtMs)) return fail('TIMESTAMP', 'receipt.acceptedAt', 'Receipt time must be an integer epoch in milliseconds');
   if (!isObject(input)) return fail('ENVELOPE', '$');
+  try { canonical(input); }
+  catch (error) {
+    if (error instanceof CanonicalError) return fail('PAYLOAD', '$', `Not canonically representable: ${error.message}`);
+    throw error;
+  }
   if (input.version !== 1) return fail('VERSION', 'version');
   const envelope = ['type', 'version', 'payload', 'signer', 'timestamp', 'prevHash', 'signature'];
-  if (Object.keys(input).sort().join(',') !== [...envelope].sort().join(',')) return fail('ENVELOPE', '$');
-  if (typeof input.type !== 'string' || !Object.hasOwn(FIELDS, input.type)) return fail('UNKNOWN_TYPE', 'type');
-  if (!validIso(input.timestamp) || Date.parse(input.timestamp) < now - 365 * 86400000 || Date.parse(input.timestamp) > now + 300000) return fail('TIMESTAMP', 'timestamp');
-  if (!isObject(input.payload)) return fail('PAYLOAD', 'payload');
-  const signer = checkPubkey(input.signer, 'signer'); if (!signer.ok) return signer;
-  const signature = checkSig(input.signature, 'signature'); if (!signature.ok) return signature;
-  if (input.prevHash !== null && (typeof input.prevHash !== 'string' || !HASH.test(input.prevHash))) return fail('FIELD_FORMAT', 'prevHash');
-  const event = input as unknown as SignedEvent;
-  const payload = checkPayload(event.type, input.payload, event, now); if (!payload.ok) return payload;
-  const p = input.payload;
-  const expectedSigner = event.type === 'AccountCreated' ? p.pubkey
-    : event.type === 'DealCreated' ? p.buyer : event.type === 'DealConsented' ? p.seller
-      : event.type === 'EscrowFunded' ? p.from : event.type === 'PrecheckCompleted' ? p.checker_id
-        : event.type === 'JuryVoted' ? p.juror : event.type === 'ReputationEvent' ? p.account
-          : event.type === 'DealAccepted' || event.type === 'DealRejected' || event.type === 'DisputeOpened' ? p.by : undefined;
-  if (expectedSigner !== undefined && input.signer !== expectedSigner) return fail('SIGNER_AUTHORITY', 'signer');
-  if ((event.type === 'TreasurySpend' || event.type === 'CurrencyIssued')
-    && !(p.approvals as Array<{ signer: unknown }>).some((approval) => approval.signer === input.signer)) return fail('SIGNER_AUTHORITY', 'signer');
+  const present = Object.keys(input);
+  for (const key of present) if (!envelope.includes(key)) return fail('ENVELOPE', key, 'Unknown envelope field');
+  for (const key of envelope) if (!present.includes(key)) return fail('ENVELOPE', key, 'Missing envelope field');
+  const type = input.type;
+  if (!isEventType(type)) return fail('UNKNOWN_TYPE', 'type');
+  if (!validIso(input.timestamp)) return fail('FIELD_FORMAT', 'timestamp');
+  if (Math.abs(Date.parse(input.timestamp) - acceptedAtMs) > TIMESTAMP_SKEW_MS) return fail('TIMESTAMP', 'timestamp', 'Timestamp deviates from receipt time by more than 5 minutes');
+  const payload = input.payload;
+  if (!isObject(payload)) return fail('PAYLOAD', 'payload');
+  const signer = pubkey(input.signer, 'signer'); if (!signer.ok) return signer;
+  const signature = sig(input.signature, 'signature'); if (!signature.ok) return signature;
+  const prev = nullableHash(input.prevHash, 'prevHash'); if (!prev.ok) return prev;
+  const shape = checkPayloadShape(type, payload); if (!shape.ok) return shape;
+  const cross = checkCrossFields(type, payload, acceptedAtMs); if (!cross.ok) return cross;
+  const authority = checkSignerAuthority(type, payload, input.signer); if (!authority.ok) return authority;
+  const attestations = checkPayloadAttestations(type, payload); if (!attestations.ok) return attestations;
+  const event = asValidatedEvent(input);
   if (!verifyEvent(event)) return fail('SIGNATURE', 'signature');
-  return { ok: true, value: event };
+  return ok(event);
 }
 
 /** Return the exact event field set for protocol tooling. */
-export function eventFields(type: EventType): readonly string[] { return FIELDS[type]; }
+export function eventFields(type: EventType): readonly string[] { return Object.keys(SCHEMA[type]); }
 /** A compile-time witness that every payload variant follows the schema map. */
 export type SchemaPayload = PayloadMap[EventType];
