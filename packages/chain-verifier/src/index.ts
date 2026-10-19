@@ -1,49 +1,157 @@
-import type { DomainError, Receipt, Result, SignedEvent } from '../../domain/src/protocol.js';
-import { eventHash, hash, verifyReceipt } from '../../crypto/src/index.js';
+import type { DomainError, Hash, Receipt, Result, Sig, SignedEvent } from '../../domain/src/protocol.js';
+import { err, ok } from '../../domain/src/protocol.js';
+import type { RelayKeyRange, SignerResolver } from '../../domain/src/ports.js';
+import { eventHash, receiptHash, relayKeyId, verifyCheckpoint, verifyReceipt } from '../../crypto/src/index.js';
 import { validateEvent } from '../../validation/src/index.js';
 
+export type { RelayKeyRange, SignerResolver } from '../../domain/src/ports.js';
+
 export interface LedgerEntry { event: SignedEvent; receipt: Receipt }
-export interface VerifiedChain { tipSequence: number; tipEventHash: string | null; tipReceiptHash: string | null }
-
-function invalid(code: string, message: string, path: string): Result<never> {
-  return { ok: false, error: { code, message, path } };
+export interface VerifiedChain {
+  tipSequence: number;
+  tipEventHash: Hash | null;
+  tipReceiptHash: Hash | null;
+  /** Latest event hash per signer pubkey. */
+  signerTips: ReadonlyMap<string, Hash>;
+  /** 'skipped' when no SignerResolver was supplied: L2 account checks did NOT run. */
+  accountChecks: 'skipped' | 'applied';
 }
 
-/** Verify every event and signed receipt in a complete ledger prefix. */
-export function verifyChain(entries: readonly LedgerEntry[], relayPublicKey: string, now: number): Result<VerifiedChain> {
-  let previousEventHash: string | null = null;
-  let previousReceiptHash: string | null = null;
-  for (const [index, entry] of entries.entries()) {
-    const result = verifyEntry(entry, index, previousEventHash, previousReceiptHash, relayPublicKey, now);
-    if (!result.ok) return result;
-    previousEventHash = eventHash(entry.event);
-    previousReceiptHash = receiptHash(entry.receipt);
+const HASH = /^[a-f0-9]{64}$/;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+function strictIsoMs(value: unknown): number | null {
+  if (typeof value !== 'string' || !ISO.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === value ? ms : null;
+}
+
+/**
+ * Relay key ranges must be well formed and must not overlap.
+ * SPEC-GAP: section 10 defines no code for malformed or overlapping key ranges; the conservative choice is
+ * KEY_UNKNOWN, because no key can be trusted for the affected sequences.
+ */
+function checkKeyRanges(ranges: readonly RelayKeyRange[]): Result<true> {
+  const sorted: RelayKeyRange[] = [];
+  for (const [index, range] of ranges.entries()) {
+    const path = `relayKeys[${index}]`;
+    if (typeof range !== 'object' || range === null) return err('KEY_UNKNOWN', 'Malformed relay key range', path);
+    if (!Number.isSafeInteger(range.validFromSequence) || range.validFromSequence < 1) return err('KEY_UNKNOWN', 'validFromSequence must be an integer >= 1', `${path}.validFromSequence`);
+    if (range.validToSequence !== null && (!Number.isSafeInteger(range.validToSequence) || range.validToSequence <= range.validFromSequence)) {
+      return err('KEY_UNKNOWN', 'validToSequence must be null or greater than validFromSequence', `${path}.validToSequence`);
+    }
+    if (typeof range.pubkey !== 'string' || typeof range.keyId !== 'string' || range.keyId !== relayKeyId(range.pubkey)) return err('KEY_UNKNOWN', 'keyId must be SHA-256 of the pubkey string', `${path}.keyId`);
+    sorted.push(range);
   }
-  return { ok: true, value: { tipSequence: entries.length, tipEventHash: previousEventHash, tipReceiptHash: previousReceiptHash } };
+  sorted.sort((a, b) => a.validFromSequence - b.validFromSequence);
+  for (let i = 0; i + 1 < sorted.length; i += 1) {
+    const current = sorted[i];
+    const next = sorted[i + 1];
+    if (current === undefined || next === undefined) continue;
+    if (current.validToSequence === null || current.validToSequence > next.validFromSequence) return err('KEY_UNKNOWN', 'Relay key ranges overlap', 'relayKeys');
+  }
+  return ok(true);
 }
 
-function verifyEntry(
-  entry: LedgerEntry,
-  index: number,
-  previousEventHash: string | null,
-  previousReceiptHash: string | null,
-  relayPublicKey: string,
-  now: number,
-): Result<true> {
-  if (!entry || !entry.event || !entry.receipt) return invalid('ENVELOPE', 'Missing event or receipt', `[${index}]`);
-  const eventResult = validateEvent(entry.event, now);
-  if (!eventResult.ok) return eventResult;
-  if (entry.event.prevHash !== previousEventHash) return invalid('CHAIN_LINK', 'Event previous hash does not match prior event', `[${index}].event.prevHash`);
-  if (entry.receipt.sequence !== index + 1) return invalid('RECEIPT_SEQUENCE', 'Receipt sequence is not contiguous', `[${index}].receipt.sequence`);
-  if (entry.receipt.eventHash !== eventHash(entry.event)) return invalid('RECEIPT_EVENT_HASH', 'Receipt does not identify this event', `[${index}].receipt.eventHash`);
-  if (entry.receipt.previousReceiptHash !== previousReceiptHash) return invalid('RECEIPT_LINK', 'Receipt link does not match prior receipt', `[${index}].receipt.previousReceiptHash`);
-  if (!verifyReceipt(entry.receipt, relayPublicKey)) return invalid('SIGNATURE', 'Invalid relay receipt signature', `[${index}].receipt.signature`);
-  return { ok: true, value: true };
+function keyInForce(ranges: readonly RelayKeyRange[], sequence: number): RelayKeyRange | undefined {
+  return ranges.find((range) => sequence >= range.validFromSequence && (range.validToSequence === null || sequence < range.validToSequence));
 }
 
-function receiptHash(receipt: Receipt): string {
-  const { signature: _signature, ...unsignedReceipt } = receipt;
-  return hash(unsignedReceipt);
+function invalid(code: DomainError['code'], message: string, path: string): Result<never> { return err(code, message, path); }
+
+interface SignerHistory { hashes: Set<Hash>; tip: Hash | null; extended: Set<Hash | null> }
+
+/**
+ * Verify a complete ledger prefix (spec sections 2, 7 L2, 10): per-signer prevHash chains, contiguous signed
+ * receipt chain, event binding, relay key ranges and non-decreasing acceptedAt. Never reads the wall clock.
+ *
+ * Fork vs stale: an entry whose prevHash points at an earlier event of the same signer that already has a successor
+ * (or a second null-prevHash entry) is a FORK; a prevHash that matches nothing in that signer's chain is CHAIN_LINK.
+ */
+export function verifyChain(entries: readonly LedgerEntry[], relayKeys: readonly RelayKeyRange[], resolver?: SignerResolver): Result<VerifiedChain> {
+  const ranges = checkKeyRanges(relayKeys);
+  if (!ranges.ok) return ranges;
+  const histories = new Map<string, SignerHistory>();
+  let previousEventHash: Hash | null = null;
+  let previousReceiptHash: Hash | null = null;
+  let previousAcceptedAt = Number.NEGATIVE_INFINITY;
+
+  for (const [index, entry] of entries.entries()) {
+    const at = `[${index}]`;
+    if (typeof entry !== 'object' || entry === null || typeof entry.event !== 'object' || entry.event === null || typeof entry.receipt !== 'object' || entry.receipt === null) {
+      return invalid('ENVELOPE', 'Missing event or receipt', at);
+    }
+    const { event, receipt } = entry;
+    if (receipt.sequence !== index + 1) return invalid('RECEIPT_SEQUENCE', 'Receipt sequence is not contiguous from 1', `${at}.receipt.sequence`);
+    const acceptedAtMs = strictIsoMs(receipt.acceptedAt);
+    if (acceptedAtMs === null) return invalid('TIMESTAMP', 'Receipt acceptedAt is not a valid IsoUtc value', `${at}.receipt.acceptedAt`);
+
+    const checked = validateEvent(event, acceptedAtMs);
+    if (!checked.ok) return err(checked.error.code, checked.error.message, `${at}.event.${checked.error.path}`);
+
+    const computedEventHash = eventHash(event);
+    if (receipt.eventHash !== computedEventHash) return invalid('RECEIPT_EVENT_HASH', 'Receipt does not identify this event', `${at}.receipt.eventHash`);
+    if (receipt.previousReceiptHash !== previousReceiptHash) return invalid('RECEIPT_LINK', 'Receipt link does not match prior receipt', `${at}.receipt.previousReceiptHash`);
+
+    const range = keyInForce(relayKeys, receipt.sequence);
+    if (range === undefined || receipt.keyId !== range.keyId) return invalid('KEY_UNKNOWN', 'No relay key in force for this receipt', `${at}.receipt.keyId`);
+    if (!verifyReceipt(receipt, range.pubkey)) return invalid('RECEIPT_SIGNATURE', 'Invalid relay receipt signature', `${at}.receipt.signature`);
+    if (acceptedAtMs < previousAcceptedAt) return invalid('TIMESTAMP', 'acceptedAt decreases', `${at}.receipt.acceptedAt`);
+
+    const history = histories.get(event.signer) ?? { hashes: new Set<Hash>(), tip: null, extended: new Set<Hash | null>() };
+    if (event.prevHash === history.tip) {
+      if (history.extended.has(event.prevHash)) return invalid('FORK', 'Competing append to the same signer tip', `${at}.event.prevHash`);
+    } else if (event.prevHash === null || history.hashes.has(event.prevHash)) {
+      return invalid('FORK', 'Event extends a signer tip that already has a successor', `${at}.event.prevHash`);
+    } else {
+      return invalid('CHAIN_LINK', 'Event previous hash does not match the signer tip', `${at}.event.prevHash`);
+    }
+    history.extended.add(event.prevHash);
+    history.hashes.add(computedEventHash);
+    history.tip = computedEventHash;
+    histories.set(event.signer, history);
+
+    if (resolver !== undefined) {
+      const resolved = resolver.resolve(event.signer, receipt.sequence);
+      if (!resolved.ok) return resolved;
+    }
+    previousEventHash = computedEventHash;
+    previousReceiptHash = receiptHash(receipt);
+    previousAcceptedAt = acceptedAtMs;
+  }
+
+  const signerTips = new Map<string, Hash>();
+  for (const [signer, history] of histories) if (history.tip !== null) signerTips.set(signer, history.tip);
+  return ok({
+    tipSequence: entries.length, tipEventHash: previousEventHash, tipReceiptHash: previousReceiptHash,
+    signerTips, accountChecks: resolver === undefined ? 'skipped' : 'applied',
+  });
+}
+
+export interface SignedCheckpoint { sequence: number; receipt_hash: Hash; key_id: Hash; signature: Sig }
+export interface EquivocationProof { first: SignedCheckpoint; second: SignedCheckpoint }
+
+function checkCheckpoint(checkpoint: SignedCheckpoint, relayKeys: readonly RelayKeyRange[], path: string): Result<true> {
+  if (typeof checkpoint !== 'object' || checkpoint === null || !Number.isSafeInteger(checkpoint.sequence) || checkpoint.sequence < 1
+    || typeof checkpoint.receipt_hash !== 'string' || !HASH.test(checkpoint.receipt_hash) || typeof checkpoint.key_id !== 'string' || !HASH.test(checkpoint.key_id)) {
+    return invalid('ATTESTATION', 'Malformed checkpoint', path);
+  }
+  const range = keyInForce(relayKeys, checkpoint.sequence);
+  if (range === undefined || range.keyId !== checkpoint.key_id) return invalid('KEY_UNKNOWN', 'No relay key in force for this checkpoint', `${path}.key_id`);
+  const body = { sequence: checkpoint.sequence, receipt_hash: checkpoint.receipt_hash, key_id: checkpoint.key_id };
+  return verifyCheckpoint(body, checkpoint.signature, range.pubkey) ? ok(true) : invalid('ATTESTATION', 'Invalid checkpoint signature', `${path}.signature`);
+}
+
+/**
+ * Spec section 10: two validly signed checkpoints for the same sequence with different receipt hashes prove relay
+ * equivocation. Returns the proof, or null when the checkpoints are consistent.
+ */
+export function detectEquivocation(a: SignedCheckpoint, b: SignedCheckpoint, relayKeys: readonly RelayKeyRange[]): Result<EquivocationProof | null> {
+  const keys = checkKeyRanges(relayKeys); if (!keys.ok) return keys;
+  const first = checkCheckpoint(a, relayKeys, 'a'); if (!first.ok) return first;
+  const second = checkCheckpoint(b, relayKeys, 'b'); if (!second.ok) return second;
+  if (a.sequence !== b.sequence || a.receipt_hash === b.receipt_hash) return ok(null);
+  return ok({ first: a, second: b });
 }
 
 /** Preserve a stable error type for callers that need to render verification failures. */
