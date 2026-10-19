@@ -1,18 +1,19 @@
-# Open protocol and policy decisions
+# Assumptions and open decisions — Pre-release revision 2
 
-These items remain configurable because Core Schema v1 does not freeze them. Do not add them as envelope or payload fields without a new protocol decision.
+| Point | Options | Recommendation | Cost if delayed |
+|---|---|---|---|
+| Refund fee-free (E4, ANNAHME) | Fee-free refund; charge cancellation fee; prohibit refund | Fee-free, since seller nonperformance should not reduce buyer principal; monitor collusive nominal deals used to farm completed-deal/reputation/activity benefits | Refund accounting and abuse policy may diverge |
+| Rejection without dispute (E6, ANNAHME) | Rejection final and buyer refund after 7d; indefinite escrow; automatic neutral escalation | Final after 7d to guarantee finite escrow lifecycle | Funds can remain locked or implementations disagree |
+| Beacon drawn from future receipt (E7, ANNAHME) | Future receipt + relay; prior known event hash; external multi-source randomness | Future receipt limits opener timing choice; relay collusion/withholding remains | Jury assignments cannot be independently reproduced |
+| Vote window (E7, ANNAHME) | 1, 3, or 7 days | 3 days balances response time and escrow liveness | Unbounded or inconsistent jury deadlines |
+| Pool too small (E7, OFFEN) | Fail closed; lower thresholds by policy; reduce jury size/quorum | No selection; decide with beta population data | Disputes may stall or jury security weaken |
+| Key rotation timelock (E13, OFFEN) | Immediate at receipt; fixed delay; delay with emergency override | No selection; assess recovery compromise and deal continuity requirements | Lost-key recovery may be abused or unusably slow |
+| Salt for precheck-report (E11) | Empty sentinel; random salt despite unsalted report hash | Empty string sentinel; report uses raw content hash and is not a commitment | Client encodings may disagree |
+| Missing evidence consequence (E11) | Jury discretion; presumption against seller; invalidate claim | Jury discretion, with missing reveal recorded as evidence; settlement rule not encoded as an automatic presumption | Evidence availability may be treated inconsistently |
+| Unlisted checker (E12, ANNAHME) | Reject event; accept but ineffective; allow as advisory | Accept but ineffective so it cannot change settlement and remains auditable | Precheck policy can alter deal conclusions |
+| Recovery derivation paths (E13, ANNAHME) | `m/44'/999999'/0'/0'/0'` account and `m/44'/999999'/0'/1'/0'` recovery; project-specific hardened paths; externally generated keys | Use first listed hardened SLIP-0010 Ed25519 paths, with coin type 999999 reserved by this protocol; BIP39 passphrase optional and changes both keys | Wallet interoperability and recovery may break |
+| Currency conservation interpretation (E17) | Burn reduces issued supply; keep supply constant via burn account | Burn reduces issued supply, maintaining spendable+escrow=issued supply | Cross-implementation balances diverge |
+| Policy activation sequence constraints (E15) | Any future sequence; next receipt only; governance-scheduled future sequence | Allow future sequence, but require strictly increasing versions and unique activation sequence | Parameter updates can be ambiguous at boundaries |
+| Initial relay key bootstrap (E14) | Genesis policy pin; compiled key; first multisig event | Genesis policy pins first key at sequence 1 | No verifiable receipt chain can start |
 
-| Decision | Options to evaluate | Recommended next step | Cost if delayed |
-| --- | --- | --- | --- |
-| Treasury approval action hash | Complete the canonical action object; bind every spend/issuance field | Resolve the truncated source definition before implementing approval verification | Invalid or replayable approvals |
-| Multisig policy | Fixed 2-of-3; configurable threshold and member list | Define a versioned policy source and membership update process | Treasury validation cannot be completed |
-| Jury selection | Deterministic seed and eligible pool; tie handling | Specify unbiased selection input, eligibility snapshot, and replayable computation | Jury assignments cannot be independently verified |
-| Dispute quorum | Fixed quorum or policy by round | Set quorum and tie behavior together with appeal rules | Dispute resolution can disagree across implementations |
-| Appeal eligibility | Either party; deadline and one appeal; superseding outcome | Define who may trigger round 1 and whether the first outcome remains actionable | Escrow release may race with an appeal |
-| Fee function | Fixed basis points, caps, minimum/maximum, rounding | Specify integer arithmetic and overflow/rounding vectors | Implementations may burn different amounts |
-| Active user and issuance | Activity window and qualifying completed deals | Define deduplication, rate, caps, and policy version | Currency supply cannot be reproduced consistently |
-| Reputation and decay | Event graph projection; decay by elapsed time/activity | Keep only signed raw events in the ledger; inject formula policy into readers | Scores can diverge if time basis is unspecified |
-| Recovery | BIP39-derived account key; optional social recovery | Specify derivation path and backup UX before shipping identity tooling | Key-loss recovery may be incompatible later |
-| Content retention | Local-only, optional pinning, retention term | Define deal-duration availability expectation and evidence archive | Dispute evidence may disappear |
-| Moderation and legal review | Report, review, appeal, and jurisdiction process | Resolve before public beta; no cash-out without legal review | Enforcement and launch exposure |
-| Option B governance | Validator selection, removal, quorum-loss behavior | Decide only when a multi-validator deployment is actually planned | Governance assumptions could force a migration |
+All listed items are explicitly marked assumptions or open choices in `protocol-v1.md`; a closed assumption is still recorded here because it needs later review before deployment.
