@@ -1,0 +1,71 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Compiled tests live in dist/packages/<pkg>/src; the TypeScript sources are four levels up.
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+function sources(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...sources(full));
+    else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts')) out.push(full);
+  }
+  return out;
+}
+const library = sources(join(root, 'packages')).filter((file) => !file.includes(`${join('packages', 'testing')}`));
+const strip = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+test('A1: scripts build clean, then run the compiled tests by glob; tsconfig lists node types', () => {
+  const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  const tsconfig: unknown = JSON.parse(readFileSync(join(root, 'tsconfig.json'), 'utf8'));
+  assert.ok(typeof pkg === 'object' && pkg !== null && 'scripts' in pkg);
+  const scripts = (pkg as { scripts: Record<string, string> }).scripts;
+  assert.match(scripts.clean ?? '', /rmSync\('dist'/);
+  assert.match(scripts.build ?? '', /^npm run clean && tsc /);
+  assert.match(scripts.test ?? '', /^npm run build && node --test "dist\/\*\*\/\*\.test\.js"$/);
+  assert.ok(scripts.typecheck?.includes('tsc --noEmit'));
+  assert.deepEqual((tsconfig as { compilerOptions: { types: string[] } }).compilerOptions.types, ['node']);
+});
+
+test('E19/A-rule 3: library code never reads the wall clock or randomness', () => {
+  assert.ok(library.length >= 8);
+  for (const file of library) {
+    const text = strip(readFileSync(file, 'utf8'));
+    assert.doesNotMatch(text, /Date\.now\s*\(/, file);
+    assert.doesNotMatch(text, /new Date\s*\(\s*\)/, file);
+    assert.doesNotMatch(text, /performance\.now|Math\.random|randomUUID|randomBytes|randomInt/, file);
+    assert.doesNotMatch(text, /@ts-ignore|:\s*any\b|<any>|\bas any\b/, file);
+  }
+});
+
+test('self-check (b): no coercion or loose equality on untrusted values in validation and the deal machine', () => {
+  for (const file of library.filter((f) => f.includes('validation') || f.includes('deal-machine'))) {
+    const text = strip(readFileSync(file, 'utf8')).replace(/'[^'\n]*'|`[^`\n]*`|"[^"\n]*"/g, "''");
+    assert.doesNotMatch(text, /\b(Number|String|Boolean|parseInt|parseFloat)\s*\(/, file);
+    assert.doesNotMatch(text, /[^=!<>]==[^=]|!=[^=]/, file);
+  }
+});
+
+test('self-check (c): every switch in library code ends with a never-exhaustiveness check', () => {
+  for (const file of library) {
+    const text = strip(readFileSync(file, 'utf8'));
+    const switches = (text.match(/\bswitch\s*\(/g) ?? []).length;
+    const checks = (text.match(/const _x: never/g) ?? []).length;
+    assert.equal(checks >= switches, true, `${file}: ${switches} switches, ${checks} exhaustiveness checks`);
+  }
+});
+
+test('self-check (g): tests contain no literal 64-hex hashes or Base64 key/signature constants', () => {
+  const tests: string[] = [];
+  const walk = (dir: string): void => { for (const name of readdirSync(dir)) { const full = join(dir, name); if (statSync(full).isDirectory()) walk(full); else if (name.endsWith('.test.ts')) tests.push(full); } };
+  walk(join(root, 'packages'));
+  for (const file of tests) {
+    if (file.endsWith('hygiene.test.ts')) continue;
+    const text = readFileSync(file, 'utf8');
+    assert.doesNotMatch(text.replace(/\b[a-f0-9]{64}\b(?=.*curve)/g, ''), /['"`][a-f0-9]{64}['"`]/, file);
+    assert.doesNotMatch(text, /['"`][A-Za-z0-9+/]{43}=['"`]|['"`][A-Za-z0-9+/]{86}==['"`]|MCowBQYDK2Vw/, file);
+  }
+});
