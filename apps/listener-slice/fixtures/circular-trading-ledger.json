@@ -1,0 +1,43 @@
+{
+  "accountA": "MCowBQYDK2VwAyEALjptWSeMbODehWAIs3+x9mGHcLASkMov7iSXVhX0/4c=",
+  "accountB": "MCowBQYDK2VwAyEAlzl1AlWfSiuNu3KQvnjJgY5CTnWTCy3kadx2QtkTBMw=",
+  "accountAPrivateKey": "MC4CAQAwBQYDK2VwBCIEIDZX0wiGKAJ2i3dDYVwZYjEBi1mdX3UhzkmK/OzqKP12",
+  "accountBPrivateKey": "MC4CAQAwBQYDK2VwBCIEIK4b8dr2O29VGMw3ohEI/AJJxI5vGYL/dyyEPJf9+CT0",
+  "listenerPubkey": "MCowBQYDK2VwAyEASGvIsdcK0nzibHJG8106I8607xkLQVyQE+B4KISXh9Q=",
+  "listenerPrivateKey": "MC4CAQAwBQYDK2VwBCIEIDukOYQ8bETRNxEvwRc/NtoKtkdmgEipYVWGY0nLuhBv",
+  "now": "2026-10-18T10:03:00.000Z",
+  "prevHash": "c3067adf18ed908d04d04d9bd1d6bbe6a78ffd138f9829cc7cca9eae4f9e0ce4",
+  "graphSubgraphHash": "9a2a80fac8fe515a15e936a7b261dcac3db250b7e1a4703f8c71f4ae64032c15",
+  "stateCheckpointHash": "a5f15ad0d198e57c9b3d0059a764ad1b5dceed0b4dd5f7b4b2ddc14a142501b9",
+  "parameterHash": "c333311037f546eb69e292feda85701a072bac2c40f23a3b080c7a607298e798",
+  "ledger": [
+    {
+      "type": "EscrowFunded",
+      "version": 1,
+      "payload": {
+        "deal_id": "11111111-2222-4333-8444-555555555555",
+        "from": "MCowBQYDK2VwAyEALjptWSeMbODehWAIs3+x9mGHcLASkMov7iSXVhX0/4c=",
+        "to": "MCowBQYDK2VwAyEAlzl1AlWfSiuNu3KQvnjJgY5CTnWTCy3kadx2QtkTBMw=",
+        "amount": 1000
+      },
+      "signer": "MCowBQYDK2VwAyEALjptWSeMbODehWAIs3+x9mGHcLASkMov7iSXVhX0/4c=",
+      "timestamp": "2026-10-18T10:01:00.000Z",
+      "prevHash": null,
+      "signature": "eZGgYng3cGbOyxiH7ozV1DFvmIWxeI/3nP6evT7fvt8zHYRSE4BQHyVPuSL+4/v7gOCJlUCiXcCWFa07wLBNCw=="
+    },
+    {
+      "type": "EscrowReleased",
+      "version": 1,
+      "payload": {
+        "deal_id": "66666666-7777-4888-9999-000000000000",
+        "from": "MCowBQYDK2VwAyEAlzl1AlWfSiuNu3KQvnjJgY5CTnWTCy3kadx2QtkTBMw=",
+        "to": "MCowBQYDK2VwAyEALjptWSeMbODehWAIs3+x9mGHcLASkMov7iSXVhX0/4c=",
+        "amount": 900
+      },
+      "signer": "MCowBQYDK2VwAyEAlzl1AlWfSiuNu3KQvnjJgY5CTnWTCy3kadx2QtkTBMw=",
+      "timestamp": "2026-10-18T10:02:00.000Z",
+      "prevHash": "8805e704a7e2b92e7f72c44fce362117bdd243676394c4e49e5c93eb165fe6df",
+      "signature": "oJNTVsLyulTq7FiPOY4OUnH96EbJkq66H4NbLHT7GauOnCftpF7GaJq8xAuvOdxQLvZoIwW8UbQwkn2nStn9Cw=="
+    }
+  ]
+}
