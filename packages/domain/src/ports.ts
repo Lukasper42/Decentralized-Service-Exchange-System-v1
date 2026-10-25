@@ -11,6 +11,8 @@ export interface DealPolicyView {
   readonly disputeWindowMs: number;
   readonly appealWindowMs: number;
   readonly voteWindowMs: number;
+  /** Fixed juror pay per case in coins; 0 disables payment. */
+  readonly jurorPayoutAmount: number;
   /** True iff the pubkey is a policy-listed checker whose precheck is effective. */
   isEffectiveChecker(pubkey: Pubkey): boolean;
 }
@@ -37,7 +39,9 @@ export type Movement =
   | { kind: 'fee_burn'; dealId: string; amount: number }
   | { kind: 'appeal_escrow_lock'; dealId: string; from: Pubkey; amount: number }
   | { kind: 'appeal_fee_return'; dealId: string; to: Pubkey; amount: number }
-  | { kind: 'appeal_fee_burn'; dealId: string; amount: number };
+  | { kind: 'appeal_fee_burn'; dealId: string; amount: number }
+  /** Nominal per-case juror pay from the treasury; accounting pays at most what the treasury holds. */
+  | { kind: 'juror_payout'; dealId: string; to: Pubkey; amount: number };
 
 /** Account projection port used by L2 chain verification. */
 export interface SignerResolver { resolve(pubkey: Pubkey, sequence: number): Result<true> }

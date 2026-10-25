@@ -2,9 +2,11 @@
 
 ## Current slice
 
-`packages/domain/src/protocol.ts` is the TypeScript wire type source for Core Schema v1. `packages/crypto` implements canonical JSON, Ed25519 event and attestation signatures, receipt verification, and SHA-256. `packages/validation` validates an untrusted event against exact envelope and payload shapes using an injected `now`. `packages/chain-verifier` independently checks an ordered event prefix, relay receipts, and both hash links. `packages/domain/src/deal-machine.ts` folds structurally valid events into one deal state and receives unresolved dispute policies through an interface.
+`packages/domain/src/protocol.ts` is the TypeScript wire type source for Core Schema v1 (27 event types, stable error codes, constants); `amount.ts` holds checked integer arithmetic and the fee formulas. `packages/crypto` implements canonical JSON, RFC 8032-strict Ed25519 event, receipt and attestation signatures, receipt/relay-key/commitment/action hashes and SHA-256. `packages/validation` is L1 only: an exact table-driven envelope and payload check against the receipt time `acceptedAtMs`, with no state and no clock. `packages/chain-verifier` is L2: per-signer prevHash chains, the contiguous signed receipt chain, relay key ranges, monotone acceptedAt and equivocation detection; account checks run only when a `SignerResolver` is injected and the result reports `accountChecks: 'skipped' | 'applied'`. `packages/domain/src/deal-machine.ts` implements the full state table of spec section 8 and returns the new state plus the ledger `movements` of every event.
 
-The policy projection is not a complete ledger authority. It cannot validate deterministic jury assignment without an eligibility snapshot and selection policy, and cannot verify treasury approvals until the supplied Core Schema completes the action-hash preimage. It must be composed with a global accounting projection before any relay accepts balance-changing events.
+## Ports (`packages/domain/src/ports.ts`)
+
+`DealContext` bundles `DealPolicyView` (fee and window values, effective checkers), `FundsView` (spendable balance) and `JuryOracle` (deterministic jurors and replacements; may answer JURY_MISMATCH, WINDOW or POLICY). `SignerResolver` is the account projection used by the chain verifier. `Movement` is the closed set of ledger effects the later accounting module applies. The machine never computes juries, balances or policy itself.
 
 ## Target boundaries
 
@@ -13,7 +15,7 @@ Client ── LedgerClient port ── Relay adapter (MVP: one append-only node)
   │                                  │
   ├── local key and content          ├── shared validation
   └── verifies events/receipts        ├── total event order and receipts
-                                     └── durable append-only store (not implemented)
+                                     └── durable append-only store (file or Postgres)
 ```
 
 The client must use the chain verifier to check signatures, event hashes, previous-event links, signed receipts, and receipt links independently. A later ABCI/CometBFT adapter may replace ledger transport and ordering implementation, but it must accept the same versioned events. No validator-set or consensus metadata belongs in the event envelope.
@@ -24,4 +26,4 @@ The wire schema, canonical encoding, signature preimages, and hash algorithms ar
 
 ## Not implemented
 
-Production HTTP relay, atomic durable event store, global accounting/escrow projection, replay/idempotency index, paging client, encrypted keystore, BIP39 recovery, content-store adapter, precheck framework, jury eligibility/selection, issuance, reputation projection, moderation, CI workflow, and red-team suite remain future work. The roadmap in the source notes is a target plan, not a claim that those components exist.
+Implemented: HTTP relay, durable stores (file, Postgres), accounting/escrow, account/invitation/key-rotation, policy and multisig, jury pool and beacon, reputation, replay/idempotency, verifying client, encrypted keystore with BIP39/SLIP-0010 recovery, content store, precheck, issuance, CI workflow and a read-only circular-trading listener. Remaining: a user interface or CLI, load and scale work (snapshots), an external security review, a red-team suite and moderation operations. Social recovery is excluded.

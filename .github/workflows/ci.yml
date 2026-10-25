@@ -1,0 +1,57 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: skill
+          POSTGRES_PASSWORD: skill
+          POSTGRES_DB: skill_exchange_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U skill -d skill_exchange_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://skill:skill@localhost:5432/skill_exchange_test
+      - name: Coverage
+        run: |
+          npm run coverage | tee coverage.txt
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat coverage.txt >> "$GITHUB_STEP_SUMMARY"
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ hashFiles('eslint.config.js') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx eslint .

@@ -23,7 +23,7 @@ const OK: Result<true> = ok(true);
 function fail(code: ErrorCode, path: string, message = `Invalid ${path}`): Result<never> { return err(code, message, path); }
 function isObject(value: unknown): value is RecordValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
+  const proto: unknown = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
 function validIso(value: unknown): value is string {

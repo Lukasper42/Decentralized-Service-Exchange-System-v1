@@ -15,7 +15,7 @@ function sources(dir: string): string[] {
   }
   return out;
 }
-const library = sources(join(root, 'packages')).filter((file) => !file.includes(`${join('packages', 'testing')}`));
+const library = sources(join(root, 'packages')).filter((file) => !file.includes(join('packages', 'testing')));
 const strip = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
 test('A1: scripts build clean, then run the compiled tests by glob; tsconfig lists node types', () => {

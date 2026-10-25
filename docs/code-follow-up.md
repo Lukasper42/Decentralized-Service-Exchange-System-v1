@@ -1,6 +1,6 @@
 # Code follow-up for pre-release revision 2
 
-Specification only; no application code was changed.
+Status of the pre-release revision 2 work.
 
 | File / module | Required change | Status |
 |---|---|---|
@@ -9,14 +9,16 @@ Specification only; no application code was changed.
 | `packages/crypto/src/index.ts` | Add receiptHash including signature, relay key ID, strict RFC 8032 checks, commitment hash, treasury action hash and checkpoint attestation helpers. | done |
 | `packages/validation/src/index.ts` | Add exact payload schemas and L1 checks; remove system-now 365-day rule and move all time/state-dependent validation to receipt-aware layers. | done |
 | `packages/chain-verifier/src/index.ts` | Verify per-signer event chains, contiguous signed receipt chain, monotone acceptedAt, relay key ranges, key rotations, and distinguish receipt errors from event-chain fork errors. | done |
-| `packages/domain/src/accounting.ts` (new) | Project spendable balances, escrow, appeal escrow, issuance and burn; enforce conservation and insufficient-funds checks. | pending |
-| `packages/domain/src/policy.ts` (new) | Resolve policy version by activation sequence and validate multisig, invitations, genesis, checker, fee, jury and limits. | pending |
-| `packages/domain/src/jury.ts` (new) | Compute snapshot pool, future-receipt beacon selection, exact draw sequence, replacement candidate and full quorum. | pending |
+| `packages/domain/src/accounting.ts` (new) | Project spendable balances, escrow, appeal escrow, issuance and burn; enforce conservation and insufficient-funds checks. | done |
+| `packages/domain/src/policy.ts` (new) | Resolve policy version by activation sequence and validate multisig, invitations, genesis, checker, fee, jury and limits. | done |
+| `packages/domain/src/jury.ts` (new) | Compute snapshot pool, future-receipt beacon selection, exact draw sequence, replacement candidate and full quorum. | done |
 | `packages/validation/src/index.test.ts` | Replace old stateless clock tests and dual-reputation schema cases; add L1 structural tests from vector plan. | done |
 | `packages/crypto/src/core.test.ts` | Add receipt, commitment, action-hash, RFC 8032 adversarial and cross-language vector fixtures. | done |
 | `docs/protocol-v1.md` | Replace current specification with this complete receipt/state/accounting contract. | done (spec text) |
 | `docs/open-questions.md` | Replace current stale decision list with every assumption and unresolved option in this revision. | done (spec text) |
 | `docs/architecture.md` | Update component boundaries to include receipts, per-account chains, accounting, policy, recovery and jury projections. | done |
-| `docs/threat-model.md` | Update replay/fork/beacon/equivocation/invitation/recovery/evidence/appeal accounting risks and controls. | pending |
+| `docs/threat-model.md` | Update replay/fork/beacon/equivocation/invitation/recovery/evidence/appeal accounting risks and controls. | done |
 | `Core Schema v1.txt` | Replace source schema with the same normative content as the project copy and protocol document. | done (spec text) |
 | `CHANGELOG.md` | Record every E1–E19 change under Pre-release revision 2. | done (spec text) |
+| `packages/relay` (new) | Append-only relay: stores, submit pipeline, receipts, checkpoints, HTTP API, key rotation, replay. See `docs/relay-spec.md`. | done |
+| `packages/keystore` (new) | BIP39/SLIP-0010 keys, encrypted keystore, signing API, recovery workflow. See `docs/keystore-spec.md`. | done (wordlist vendored, digest verified) |

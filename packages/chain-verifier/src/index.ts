@@ -62,21 +62,30 @@ function invalid(code: DomainError['code'], message: string, path: string): Resu
 interface SignerHistory { hashes: Set<Hash>; tip: Hash | null; extended: Set<Hash | null> }
 
 /**
- * Verify a complete ledger prefix (spec sections 2, 7 L2, 10): per-signer prevHash chains, contiguous signed
- * receipt chain, event binding, relay key ranges and non-decreasing acceptedAt. Never reads the wall clock.
- *
- * Fork vs stale: an entry whose prevHash points at an earlier event of the same signer that already has a successor
- * (or a second null-prevHash entry) is a FORK; a prevHash that matches nothing in that signer's chain is CHAIN_LINK.
+ * Incremental form of verifyChain: append entries one at a time and keep the same guarantees. The relay key ranges
+ * are passed with every append, because a RelayKeyRotated event extends them while the chain grows.
  */
-export function verifyChain(entries: readonly LedgerEntry[], relayKeys: readonly RelayKeyRange[], resolver?: SignerResolver): Result<VerifiedChain> {
-  const ranges = checkKeyRanges(relayKeys);
-  if (!ranges.ok) return ranges;
-  const histories = new Map<string, SignerHistory>();
-  let previousEventHash: Hash | null = null;
-  let previousReceiptHash: Hash | null = null;
-  let previousAcceptedAt = Number.NEGATIVE_INFINITY;
+export class ChainCursor {
+  #histories = new Map<string, SignerHistory>();
+  #previousEventHash: Hash | null = null;
+  #previousReceiptHash: Hash | null = null;
+  #previousAcceptedAt = Number.NEGATIVE_INFINITY;
+  #count = 0;
+  #checkedRanges: readonly RelayKeyRange[] | null = null;
 
-  for (const [index, entry] of entries.entries()) {
+  get tipSequence(): number { return this.#count; }
+  get tipReceiptHash(): Hash | null { return this.#previousReceiptHash; }
+  get tipEventHash(): Hash | null { return this.#previousEventHash; }
+  /** Latest event hash of a signer, or null when the signer has no event yet. */
+  signerTip(signer: string): Hash | null { return this.#histories.get(signer)?.tip ?? null; }
+
+  append(entry: LedgerEntry, relayKeys: readonly RelayKeyRange[], resolver?: SignerResolver): Result<true> {
+    if (this.#checkedRanges !== relayKeys) {
+      const ranges = checkKeyRanges(relayKeys);
+      if (!ranges.ok) return ranges;
+      this.#checkedRanges = relayKeys;
+    }
+    const index = this.#count;
     const at = `[${index}]`;
     if (typeof entry !== 'object' || entry === null || typeof entry.event !== 'object' || entry.event === null || typeof entry.receipt !== 'object' || entry.receipt === null) {
       return invalid('ENVELOPE', 'Missing event or receipt', at);
@@ -91,14 +100,14 @@ export function verifyChain(entries: readonly LedgerEntry[], relayKeys: readonly
 
     const computedEventHash = eventHash(event);
     if (receipt.eventHash !== computedEventHash) return invalid('RECEIPT_EVENT_HASH', 'Receipt does not identify this event', `${at}.receipt.eventHash`);
-    if (receipt.previousReceiptHash !== previousReceiptHash) return invalid('RECEIPT_LINK', 'Receipt link does not match prior receipt', `${at}.receipt.previousReceiptHash`);
+    if (receipt.previousReceiptHash !== this.#previousReceiptHash) return invalid('RECEIPT_LINK', 'Receipt link does not match prior receipt', `${at}.receipt.previousReceiptHash`);
 
     const range = keyInForce(relayKeys, receipt.sequence);
     if (range === undefined || receipt.keyId !== range.keyId) return invalid('KEY_UNKNOWN', 'No relay key in force for this receipt', `${at}.receipt.keyId`);
     if (!verifyReceipt(receipt, range.pubkey)) return invalid('RECEIPT_SIGNATURE', 'Invalid relay receipt signature', `${at}.receipt.signature`);
-    if (acceptedAtMs < previousAcceptedAt) return invalid('TIMESTAMP', 'acceptedAt decreases', `${at}.receipt.acceptedAt`);
+    if (acceptedAtMs < this.#previousAcceptedAt) return invalid('TIMESTAMP', 'acceptedAt decreases', `${at}.receipt.acceptedAt`);
 
-    const history = histories.get(event.signer) ?? { hashes: new Set<Hash>(), tip: null, extended: new Set<Hash | null>() };
+    const history = this.#histories.get(event.signer) ?? { hashes: new Set<Hash>(), tip: null, extended: new Set<Hash | null>() };
     if (event.prevHash === history.tip) {
       if (history.extended.has(event.prevHash)) return invalid('FORK', 'Competing append to the same signer tip', `${at}.event.prevHash`);
     } else if (event.prevHash === null || history.hashes.has(event.prevHash)) {
@@ -106,25 +115,47 @@ export function verifyChain(entries: readonly LedgerEntry[], relayKeys: readonly
     } else {
       return invalid('CHAIN_LINK', 'Event previous hash does not match the signer tip', `${at}.event.prevHash`);
     }
-    history.extended.add(event.prevHash);
-    history.hashes.add(computedEventHash);
-    history.tip = computedEventHash;
-    histories.set(event.signer, history);
-
     if (resolver !== undefined) {
       const resolved = resolver.resolve(event.signer, receipt.sequence);
       if (!resolved.ok) return resolved;
     }
-    previousEventHash = computedEventHash;
-    previousReceiptHash = receiptHash(receipt);
-    previousAcceptedAt = acceptedAtMs;
+    // Commit only after every check passed, so a rejected entry leaves the cursor untouched.
+    history.extended.add(event.prevHash);
+    history.hashes.add(computedEventHash);
+    history.tip = computedEventHash;
+    this.#histories.set(event.signer, history);
+    this.#previousEventHash = computedEventHash;
+    this.#previousReceiptHash = receiptHash(receipt);
+    this.#previousAcceptedAt = acceptedAtMs;
+    this.#count += 1;
+    return ok(true);
   }
 
-  const signerTips = new Map<string, Hash>();
-  for (const [signer, history] of histories) if (history.tip !== null) signerTips.set(signer, history.tip);
+  signerTips(): ReadonlyMap<string, Hash> {
+    const tips = new Map<string, Hash>();
+    for (const [signer, history] of this.#histories) if (history.tip !== null) tips.set(signer, history.tip);
+    return tips;
+  }
+}
+
+/**
+ * Verify a complete ledger prefix (spec sections 2, 7 L2, 10): per-signer prevHash chains, contiguous signed
+ * receipt chain, event binding, relay key ranges and non-decreasing acceptedAt. Never reads the wall clock.
+ *
+ * Fork vs stale: an entry whose prevHash points at an earlier event of the same signer that already has a successor
+ * (or a second null-prevHash entry) is a FORK; a prevHash that matches nothing in that signer's chain is CHAIN_LINK.
+ */
+export function verifyChain(entries: readonly LedgerEntry[], relayKeys: readonly RelayKeyRange[], resolver?: SignerResolver): Result<VerifiedChain> {
+  const ranges = checkKeyRanges(relayKeys);
+  if (!ranges.ok) return ranges;
+  const cursor = new ChainCursor();
+  for (const entry of entries) {
+    const appended = cursor.append(entry, relayKeys, resolver);
+    if (!appended.ok) return appended;
+  }
   return ok({
-    tipSequence: entries.length, tipEventHash: previousEventHash, tipReceiptHash: previousReceiptHash,
-    signerTips, accountChecks: resolver === undefined ? 'skipped' : 'applied',
+    tipSequence: cursor.tipSequence, tipEventHash: cursor.tipEventHash, tipReceiptHash: cursor.tipReceiptHash,
+    signerTips: cursor.signerTips(), accountChecks: resolver === undefined ? 'skipped' : 'applied',
   });
 }
 
