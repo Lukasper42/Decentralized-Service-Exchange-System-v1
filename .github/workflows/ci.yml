@@ -44,10 +44,10 @@ jobs:
           npm run coverage | tee coverage.txt
           echo "" >> "$GITHUB_STEP_SUMMARY"
           cat coverage.txt >> "$GITHUB_STEP_SUMMARY"
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ hashFiles('eslint.config.js') != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,4 +55,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx eslint .
+      - name: Lint
+        run: |
+          if [ -f eslint.config.js ]; then
+            npx eslint .
+          else
+            echo "No eslint.config.js found — skipping lint"
+          fi
