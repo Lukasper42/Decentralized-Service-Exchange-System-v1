@@ -101,3 +101,41 @@ Until those are confirmed, the only safe conclusion is that the listener needs
 a narrowly scoped off-ledger signed-report capability; the exact envelope and
 authority model must come from decision 6.
 
+
+## Confirmed off-ledger report requirements
+
+Decision 6 now defines the report schema and signer/trust model.
+
+### Report schema
+
+The report retains the existing evidence body:
+
+- `rule_id`
+- Canonically sorted `account_a` and `account_b`
+- Forward and reverse references: `deal_id`, `release_event_hash`, `sequence`, `amount`, and `accepted_at`
+- `through_sequence`
+
+The report additionally includes:
+
+- `report_version`: `1`
+- `through_receipt_hash`
+- A stable `finding_id`
+- `listener_pubkey`
+- `created_at`, obtained through the clock port
+- `signature`
+
+`finding_id` must be stable and derived from the rule, account pair, and both release hashes. It must exclude `through_sequence`. The current sequence-dependent `findingHash` must not be used as the finding identifier.
+
+The signed payload contains references and hashes only. It must not contain copies of ledger events. Signing uses the domain prefix `skillx/v1/listener-report\n` followed by canonical JSON. The `signature` field is excluded from the signed payload.
+
+### Signer and trust model
+
+The report is signed with a dedicated listener Ed25519 key. This key is separate from account, treasury, and relay keys and has no ledger privileges.
+
+The receiver validates signatures strictly and maintains an allowlist containing the listener public key together with its `valid_from_sequence` and `valid_to_sequence` validity range.
+
+Key rotation remains off-ledger. Reports signed by a previous listener key remain valid for sequences within that key’s authorized range.
+
+### Remaining gap
+
+The delivery interface for emitting or delivering the signed report has not yet been confirmed. Implementation remains blocked until that boundary is defined.
