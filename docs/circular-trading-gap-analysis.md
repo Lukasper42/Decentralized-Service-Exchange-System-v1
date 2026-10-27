@@ -139,3 +139,32 @@ Key rotation remains off-ledger. Reports signed by a previous listener key remai
 ### Remaining gap
 
 The delivery interface for emitting or delivering the signed report has not yet been confirmed. Implementation remains blocked until that boundary is defined.
+
+## Delivery interface analysis
+
+The delivery requirements define an idempotent receiver for off-ledger circular-trading reports:
+
+- `finding_id` is the idempotency key.
+- A new report returns `201`.
+- A duplicate report returns `200`.
+- An invalid report returns a `4xx` response and must not be retried.
+- Delivery uses a local NDJSON outbox with at-least-once delivery and backoff.
+
+The repository contains an HTTP surface in `packages/relay/src/http.ts`. It exposes `POST /v1/events` for ledger events and read-only endpoints for health, tip, checkpoints, entries, receipts, and signer tips. It does not contain a receiver or route for off-ledger circular-trading reports.
+
+No suitable receiving component or report-delivery interface currently exists.
+
+### Proposed minimal receiver
+
+The smallest necessary interface is an HTTP endpoint:
+
+- `POST /v1/reports`
+- Accepts one signed circular-trading report.
+- Validates the report schema, signature, listener allowlist entry, and sequence validity.
+- Uses `finding_id` as the idempotency key.
+- Returns `201` for a newly accepted report.
+- Returns `200` for a duplicate report.
+- Returns `4xx` for an invalid report; invalid reports are not retried.
+- Persists accepted reports through a local NDJSON outbox with at-least-once delivery and backoff.
+
+This remains a proposal and is not an implementation. The receiving component and exact interface require maintainer confirmation. All findings remain off-ledger.
