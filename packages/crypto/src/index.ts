@@ -265,3 +265,8 @@ export interface KeyRotationBody { old_pubkey: Pubkey; new_pubkey: Pubkey; new_r
 /** Signed by the recovery key. */
 export function signKeyRotation(body: KeyRotationBody, recoveryPrivateKey: string): Sig { return signAttestation('key-rotation', body, recoveryPrivateKey); }
 export function verifyKeyRotation(body: KeyRotationBody, signature: unknown, recoveryPubkey: Pubkey): boolean { return verifyAttestation('key-rotation', body, signature, recoveryPubkey); }
+
+/** Sign arbitrary bytes with an Ed25519 PKCS8 Base64 private key. */
+export function signBytes(message: Uint8Array, privateKeyBase64: string): string {
+  return sign(null, message, privateKeyObject(privateKeyBase64)).toString('base64');
+}
