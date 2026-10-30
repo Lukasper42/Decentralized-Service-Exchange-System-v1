@@ -94,6 +94,25 @@ test('per-key rate limit rejects the request after the limit; the CORS header is
   }, { ...POLICY, allowedOrigin: 'https://app.example' });
 });
 
+test('CORS preflight: answered with 204 and the exact origin when one is configured, never consumes rate limit, unknown without origin', async () => {
+  await withServer(async (base) => {
+    for (let i = 0; i < 10; i += 1) {
+      const response = await fetch(`${base}/v1/events`, { method: 'OPTIONS', headers: { origin: 'https://app.example', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' } });
+      assert.equal(response.status, 204);
+      assert.equal(response.headers.get('access-control-allow-origin'), 'https://app.example');
+      assert.equal(response.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS');
+      assert.equal(response.headers.get('access-control-allow-headers'), 'content-type');
+    }
+    const outside = await fetch(`${base}/other`, { method: 'OPTIONS' });
+    assert.equal(outside.status, 404);
+  }, { ...POLICY, perIpLimit: 1, allowedOrigin: 'https://app.example' });
+  await withServer(async (base) => {
+    const response = await fetch(`${base}/v1/events`, { method: 'OPTIONS' });
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
+  });
+});
+
 test('per-IP rate limit and graceful shutdown: in-flight work completes and the port is released', async () => {
   await withServer(async (base, _rig, server) => {
     const first = await post(base, { x: 1 });

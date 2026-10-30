@@ -44,3 +44,18 @@ test('readConfig rejects bad numbers and modes without echoing the value', () =>
   assert.throws(() => readConfig({ ...base, RATE_PER_IP: '0' }), /RATE_PER_IP/);
   assert.throws(() => readConfig({ ...base, RELAY_MODE: 'sqlite' }), /RELAY_MODE must be memory or postgres/);
 });
+
+test('readConfig: the report receiver is off by default and needs allowlist and outbox together', () => {
+  assert.equal(readConfig(base).reports, null);
+  const on = readConfig({ ...base, LISTENER_ALLOWLIST_FILE: 'allow.json', REPORT_OUTBOX_FILE: 'reports.ndjson' });
+  assert.deepEqual(on.reports, { allowlistFile: 'allow.json', outboxFile: 'reports.ndjson', deliveryUrl: null });
+  assert.throws(() => readConfig({ ...base, LISTENER_ALLOWLIST_FILE: 'allow.json' }), /must be set together/);
+  assert.throws(() => readConfig({ ...base, REPORT_OUTBOX_FILE: 'reports.ndjson' }), /must be set together/);
+});
+
+test('readConfig: REPORT_DELIVERY_URL needs the receiver and must be http(s)', () => {
+  const receiver = { ...base, LISTENER_ALLOWLIST_FILE: 'allow.json', REPORT_OUTBOX_FILE: 'reports.ndjson' };
+  assert.equal(readConfig({ ...receiver, REPORT_DELIVERY_URL: 'https://sink.example/in' }).reports?.deliveryUrl, 'https://sink.example/in');
+  assert.throws(() => readConfig({ ...base, REPORT_DELIVERY_URL: 'https://sink.example/in' }), /requires/);
+  for (const url of ['ftp://sink.example', 'not a url']) assert.throws(() => readConfig({ ...receiver, REPORT_DELIVERY_URL: url }), /http\(s\) URL/, url);
+});

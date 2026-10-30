@@ -1,4 +1,4 @@
-import { appendFile, readFile } from 'node:fs/promises';
+import { appendFile, open, readFile } from 'node:fs/promises';
 import { canonical, strictVerify } from '../../crypto/src/index.js';
 import type { Hash, Pubkey } from '../../domain/src/protocol.js';
 import type { RelayError } from './relay.js';
@@ -13,6 +13,25 @@ export interface ListenerKeyAllowlistEntry {
   readonly pubkey: Pubkey;
   readonly valid_from_sequence: number;
   readonly valid_to_sequence: number;
+}
+
+/** Strict parser for the allowlist file: a JSON array of {pubkey, valid_from_sequence, valid_to_sequence}. */
+export function parseListenerAllowlist(text: string): ListenerKeyAllowlistEntry[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { throw new Error('invalid listener allowlist: not valid JSON'); }
+  if (!Array.isArray(parsed)) throw new Error('invalid listener allowlist: expected an array');
+  const entries: ListenerKeyAllowlistEntry[] = [];
+  for (const [index, raw] of (parsed as unknown[]).entries()) {
+    const path = `listener allowlist[${index}]`;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error(`invalid ${path}: expected an object`);
+    const record = raw as Record<string, unknown>;
+    if (Object.keys(record).sort().join(',') !== 'pubkey,valid_from_sequence,valid_to_sequence') throw new Error(`invalid ${path}: unexpected or missing fields`);
+    const { pubkey, valid_from_sequence: from, valid_to_sequence: to } = record;
+    if (typeof pubkey !== 'string' || pubkey.length === 0) throw new Error(`invalid ${path}: pubkey`);
+    if (!isPositiveSafeInteger(from) || !isPositiveSafeInteger(to) || from > to) throw new Error(`invalid ${path}: sequence range`);
+    entries.push({ pubkey, valid_from_sequence: from, valid_to_sequence: to });
+  }
+  return entries;
 }
 
 export type ReportDeliveryOutcome = 'delivered' | 'retryable' | 'permanent';
@@ -68,6 +87,10 @@ export function validateReport(input: unknown, allowlist: readonly ListenerKeyAl
   if (!isIsoUtc(report.created_at)) return badRequest('created_at must be an ISO-8601 UTC timestamp', 'created_at');
   if (typeof report.signature !== 'string' || report.signature.length === 0) return badRequest('signature must be a Base64 string', 'signature');
 
+  // Cheap authority check first: unknown keys never reach the hash and signature work.
+  const authorized = allowlist.some((entry) => entry.pubkey === report.listener_pubkey && throughSequence >= entry.valid_from_sequence && throughSequence <= entry.valid_to_sequence);
+  if (!authorized) return { ok: false, error: { code: 'SIGNER_AUTHORITY', message: 'Listener key is not authorized for this sequence', path: 'listener_pubkey' } };
+
   const expectedFindingId = stableFindingId({
     ruleId: 'circular-trading-pair',
     accountA: report.account_a,
@@ -97,9 +120,6 @@ export function validateReport(input: unknown, allowlist: readonly ListenerKeyAl
   delete unsigned.signature;
   const payload = Buffer.from(REPORT_DOMAIN + canonical(unsigned), 'utf8');
   if (!strictVerify(payload, report.signature, report.listener_pubkey)) return { ok: false, error: { code: 'SIGNATURE', message: 'Report signature is invalid', path: 'signature' } };
-
-  const authorized = allowlist.some((entry) => entry.pubkey === report.listener_pubkey && throughSequence >= entry.valid_from_sequence && throughSequence <= entry.valid_to_sequence);
-  if (!authorized) return { ok: false, error: { code: 'SIGNER_AUTHORITY', message: 'Listener key is not authorized for this sequence', path: 'listener_pubkey' } };
 
   return ok(report as unknown as CircularTradingReport);
 }
@@ -145,7 +165,8 @@ export class ReportReceiver {
 
 export interface NdjsonReportOutboxOptions {
   readonly path: string;
-  readonly deliver: (report: CircularTradingReport) => Promise<ReportDeliveryOutcome>;
+  /** Without a delivery function the outbox only stores reports durably (store-only mode). */
+  readonly deliver?: (report: CircularTradingReport) => Promise<ReportDeliveryOutcome>;
   readonly clock: ClockPort;
   readonly maxAttempts?: number;
   readonly baseBackoffMs?: number;
@@ -155,26 +176,85 @@ export interface NdjsonReportOutboxOptions {
 }
 
 const defaultDelay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-const defaultAppendLine = (path: string, line: string) => appendFile(path, line, 'utf8');
+const defaultAppendLine = (path: string, line: string): Promise<void> => appendFile(path, line, 'utf8');
+const NEWLINE = String.fromCharCode(10);
 
-/** Local NDJSON outbox: append first, then deliver with exponential backoff. Permanent failures are never retried. */
+function isMissingFile(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT';
+}
+
+async function readTextOrEmpty(path: string): Promise<string> {
+  try { return await readFile(path, 'utf8'); }
+  catch (error) {
+    if (isMissingFile(error)) return '';
+    throw error;
+  }
+}
+
+/** Reads a NDJSON text and keeps every line that parses to an object; torn or corrupt lines are skipped, never fatal. */
+function parseReportLines(text: string): CircularTradingReport[] {
+  const reports: CircularTradingReport[] = [];
+  for (const line of text.split(NEWLINE)) {
+    if (line.trim().length === 0) continue;
+    let value: unknown;
+    try { value = JSON.parse(line); } catch { continue; }
+    if (typeof value === 'object' && value !== null && isHash((value as { finding_id?: unknown }).finding_id)) reports.push(value as CircularTradingReport);
+  }
+  return reports;
+}
+
+/**
+ * Local NDJSON outbox. Append first (durable), then deliver with exponential backoff. Delivered or permanently failed
+ * finding ids are recorded in `<path>.done`; everything else is replayed by `replayPending()` after a restart
+ * (at-least-once). Permanent failures are never retried.
+ */
 export class NdjsonReportOutbox implements ReportOutbox {
+  private boundaryChecked = false;
+
   constructor(private readonly options: NdjsonReportOutboxOptions) {}
 
+  private get donePath(): string { return `${this.options.path}.done`; }
+
+  /** A crash can leave a torn last line without newline; terminate it so the next record starts on its own line. */
+  private async ensureLineBoundary(): Promise<void> {
+    if (this.boundaryChecked) return;
+    let handle;
+    try { handle = await open(this.options.path, 'r'); }
+    catch (error) {
+      if (isMissingFile(error)) { this.boundaryChecked = true; return; }
+      throw error;
+    }
+    try {
+      const { size } = await handle.stat();
+      if (size > 0) {
+        const last = Buffer.alloc(1);
+        await handle.read(last, 0, 1, size - 1);
+        if (last[0] !== 10) await (this.options.appendLine ?? defaultAppendLine)(this.options.path, NEWLINE);
+      }
+    } finally { await handle.close(); }
+    this.boundaryChecked = true;
+  }
+
   async append(report: CircularTradingReport): Promise<void> {
-    const appendLine = this.options.appendLine ?? defaultAppendLine;
-    await appendLine(this.options.path, `${JSON.stringify(report)}
-`);
-    void this.deliverWithBackoff(report);
+    await this.ensureLineBoundary();
+    await (this.options.appendLine ?? defaultAppendLine)(this.options.path, `${JSON.stringify(report)}${NEWLINE}`);
+    if (this.options.deliver !== undefined) void this.deliverWithBackoff(report);
+  }
+
+  private async markDone(report: CircularTradingReport): Promise<void> {
+    try { await (this.options.appendLine ?? defaultAppendLine)(this.donePath, `${report.finding_id}${NEWLINE}`); }
+    catch { /* a lost marker only causes one redelivery after restart */ }
   }
 
   private async deliverWithBackoff(report: CircularTradingReport): Promise<void> {
+    const deliver = this.options.deliver;
+    if (deliver === undefined) return;
     const maxAttempts = this.options.maxAttempts ?? 5;
     const baseBackoffMs = this.options.baseBackoffMs ?? 100;
     const delay = this.options.delay ?? defaultDelay;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const outcome = await this.options.deliver(report).catch(() => 'retryable' as const);
-      if (outcome !== 'retryable') return;
+      const outcome = await deliver(report).catch(() => 'retryable' as const);
+      if (outcome !== 'retryable') { await this.markDone(report); return; }
       if (attempt === maxAttempts) {
         this.options.onExhausted?.(report);
         return;
@@ -183,19 +263,32 @@ export class NdjsonReportOutbox implements ReportOutbox {
     }
   }
 
-  /** Loads finding ids already persisted in the NDJSON file so idempotency survives restarts. */
+  /** Finding ids already persisted, skipping unreadable lines. Real read errors (not a missing file) are thrown. */
   async loadFindingIds(): Promise<Hash[]> {
-    try {
-      const text = await readFile(this.options.path, 'utf8');
-      const lines = text.split(String.fromCharCode(10));
-      const ids: Hash[] = [];
-      for (const line of lines) {
-        if (line.trim().length === 0) continue;
-        ids.push((JSON.parse(line) as CircularTradingReport).finding_id);
-      }
-      return ids;
-    } catch {
-      return [];
+    const ids = new Set<Hash>();
+    for (const report of parseReportLines(await readTextOrEmpty(this.options.path))) ids.add(report.finding_id);
+    return [...ids];
+  }
+
+  /** Reports that were stored but neither delivered nor permanently rejected. */
+  async loadPending(): Promise<CircularTradingReport[]> {
+    const done = new Set<string>();
+    for (const line of (await readTextOrEmpty(this.donePath)).split(NEWLINE)) if (isHash(line.trim())) done.add(line.trim());
+    const seen = new Set<Hash>();
+    const pending: CircularTradingReport[] = [];
+    for (const report of parseReportLines(await readTextOrEmpty(this.options.path))) {
+      if (done.has(report.finding_id) || seen.has(report.finding_id)) continue;
+      seen.add(report.finding_id);
+      pending.push(report);
     }
+    return pending;
   }
+
+  /** Redelivers pending reports one after the other (call once after a restart). Returns how many were attempted. */
+  async replayPending(): Promise<number> {
+    if (this.options.deliver === undefined) return 0;
+    const pending = await this.loadPending();
+    for (const report of pending) await this.deliverWithBackoff(report);
+    return pending.length;
   }
+}

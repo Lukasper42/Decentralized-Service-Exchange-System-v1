@@ -314,3 +314,58 @@ test('NdjsonReportOutbox stops after exactly five retryable attempts and records
   assert.deepEqual(delays, [100, 200, 400, 800]);
   assert.equal(abandoned, report.finding_id);
 });
+
+test('POST /v1/reports rejects a report whose finding_id does not match the finding', async () => {
+  const rig = new RelayRig();
+  rig.bootstrap();
+  const dir = await mkdtemp(join(tmpdir(), 'skillx-reports-forged-id-'));
+  const outboxPath = join(dir, 'reports.ndjson');
+  const outbox = new NdjsonReportOutbox({ path: outboxPath, deliver: async () => 'delivered', clock: { nowMs: () => rig.now } });
+  const allowlist: ListenerKeyAllowlistEntry[] = [{ pubkey: rig.cast.checker.publicKey, valid_from_sequence: 1, valid_to_sequence: 1000 }];
+  const server: RelayHttpServer = createRelayServer(rig.relay, { nowMs: () => rig.now }, POLICY, new ReportReceiver({ allowlist, outbox }));
+  const port = await server.listen(0, '127.0.0.1');
+  try {
+    const { report } = buildReport(rig);
+    const forged = { ...report, finding_id: h('forged') };
+    const response = await fetch(`http://127.0.0.1:${port}/v1/reports`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(forged) });
+    assert.equal(response.status, 400);
+    const body = (await response.json()) as { code: string; path: string };
+    assert.deepEqual([body.code, body.path], ['BAD_REQUEST', 'finding_id']);
+    await assert.rejects(readFile(outboxPath, 'utf8'));
+  } finally {
+    await server.shutdown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('POST /v1/reports checks the allowlist before the signature: an unknown key with a broken signature is an authority error', async () => {
+  const rig = new RelayRig();
+  rig.bootstrap();
+  const dir = await mkdtemp(join(tmpdir(), 'skillx-reports-authority-first-'));
+  const outbox = new NdjsonReportOutbox({ path: join(dir, 'reports.ndjson'), deliver: async () => 'delivered', clock: { nowMs: () => rig.now } });
+  const server: RelayHttpServer = createRelayServer(rig.relay, { nowMs: () => rig.now }, POLICY, new ReportReceiver({ allowlist: [], outbox }));
+  const port = await server.listen(0, '127.0.0.1');
+  try {
+    const { report } = buildReport(rig);
+    const broken = { ...report, signature: report.signature.slice(0, -4) + 'AAAA' };
+    const response = await fetch(`http://127.0.0.1:${port}/v1/reports`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(broken) });
+    assert.equal(response.status, 403);
+    assert.equal(((await response.json()) as { code: string }).code, 'SIGNER_AUTHORITY');
+  } finally {
+    await server.shutdown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('POST /v1/reports answers 404 when no receiver is configured', async () => {
+  const rig = new RelayRig();
+  rig.bootstrap();
+  const server: RelayHttpServer = createRelayServer(rig.relay, { nowMs: () => rig.now }, POLICY);
+  const port = await server.listen(0, '127.0.0.1');
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/reports`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(response.status, 404);
+  } finally {
+    await server.shutdown();
+  }
+});

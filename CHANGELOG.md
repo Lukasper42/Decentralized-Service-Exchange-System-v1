@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Relay: CORS preflight (`OPTIONS /v1/*`) is answered when `ALLOWED_ORIGIN` is set; browser clients could not POST before.
+- Off-ledger circular-trading reports (`POST /v1/reports`, report schema v1, domain prefix `skillx/v1/listener-report`): receiver with strict validation, listener allowlist (checked before the signature), idempotency by `finding_id`, durable NDJSON outbox that survives torn lines, `.done` markers and replay after restart (at-least-once), optional HTTP delivery (`REPORT_DELIVERY_URL`). Enabled only when `LISTENER_ALLOWLIST_FILE` and `REPORT_OUTBOX_FILE` are set. No ledger events, no protocol change.
+
 ## 2026-10-24
 - Doku bereinigt (README, architecture, threat-model, code-follow-up, open-questions, protocol-v1 Rotation und kleiner Pool, keystore-spec). Entscheidungen: Treasury-Multisig 2-von-3 für die Beta, Juror-Auszahlung nur bis Treasury-Guthaben, Treasury nur über `genesisAccounting`, Listener-Befunde nicht auf dem Ledger.
 - Tooling: CI-Workflow, ESLint-Konfiguration, Postgres-Integrationstests (`TEST_DATABASE_URL`); Windows: Verzeichnis-fsync übersprungen, Symlink-Test überspringt bei EPERM.

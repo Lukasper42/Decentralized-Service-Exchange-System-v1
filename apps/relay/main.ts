@@ -12,6 +12,8 @@ import {
   createRelayServer,
 } from '../../packages/relay/src/index.js';
 import type { HttpPolicy, RelayPolicy } from '../../packages/relay/src/index.js';
+import { httpReportDelivery } from '../../packages/relay/src/report-delivery.js';
+import { NdjsonReportOutbox, ReportReceiver, parseListenerAllowlist } from '../../packages/relay/src/report-receiver.js';
 import { loadGenesis } from './genesis.js';
 import { loadRelayKeySource } from './key-file.js';
 
@@ -32,6 +34,8 @@ export interface RelayConfig {
   maxPage: number;
   allowedOrigin: string | null;
   trustedProxies: string[];
+  /** Off-ledger circular-trading report receiver (POST /v1/reports); null = disabled, the route answers 404. */
+  reports: { allowlistFile: string; outboxFile: string; deliveryUrl: string | null } | null;
 }
 
 function readRequired(
@@ -110,6 +114,24 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): R
   const allowedOrigin = readOptional(env, 'ALLOWED_ORIGIN');
   const trustedProxies = (readOptional(env, 'TRUSTED_PROXIES') ?? '').split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0);
 
+  const allowlistFile = readOptional(env, 'LISTENER_ALLOWLIST_FILE');
+  const outboxFile = readOptional(env, 'REPORT_OUTBOX_FILE');
+  const deliveryUrl = readOptional(env, 'REPORT_DELIVERY_URL');
+  if ((allowlistFile === null) !== (outboxFile === null)) {
+    throw new Error('LISTENER_ALLOWLIST_FILE and REPORT_OUTBOX_FILE must be set together');
+  }
+  if (deliveryUrl !== null) {
+    if (allowlistFile === null) {
+      throw new Error('REPORT_DELIVERY_URL requires LISTENER_ALLOWLIST_FILE and REPORT_OUTBOX_FILE');
+    }
+    let protocol: string;
+    try { protocol = new URL(deliveryUrl).protocol; } catch { throw new Error('REPORT_DELIVERY_URL must be an http(s) URL'); }
+    if (protocol !== 'http:' && protocol !== 'https:') {
+      throw new Error('REPORT_DELIVERY_URL must be an http(s) URL');
+    }
+  }
+  const reports = allowlistFile !== null && outboxFile !== null ? { allowlistFile, outboxFile, deliveryUrl } : null;
+
   return {
     port,
     host,
@@ -127,6 +149,7 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): R
     maxPage,
     allowedOrigin,
     trustedProxies,
+    reports,
   };
 }
 
@@ -255,9 +278,26 @@ async function main(): Promise<void> {
       return;
     }
 
-    const server = createRelayServer(relay, systemClock, httpPolicy);
+    let reportReceiver: ReportReceiver | undefined;
+    let reportOutbox: NdjsonReportOutbox | undefined;
+    if (config.reports !== null) {
+      const allowlist = parseListenerAllowlist(readFileSync(config.reports.allowlistFile, 'utf8'));
+      reportOutbox = new NdjsonReportOutbox({
+        path: config.reports.outboxFile,
+        clock: systemClock,
+        ...(config.reports.deliveryUrl === null ? {} : { deliver: httpReportDelivery(config.reports.deliveryUrl) }),
+        onExhausted: (report) => { log('reports.delivery_exhausted', { finding_id: report.finding_id }); },
+      });
+      reportReceiver = new ReportReceiver({ allowlist, outbox: reportOutbox, knownFindingIds: await reportOutbox.loadFindingIds() });
+      log('reports.enabled', { listeners: allowlist.length, delivery: config.reports.deliveryUrl !== null });
+    }
+
+    const server = createRelayServer(relay, systemClock, httpPolicy, reportReceiver);
     const actualPort = await server.listen(config.port, config.host);
     log('relay.listening', { port: actualPort, host: config.host });
+    if (reportOutbox !== undefined) {
+      void reportOutbox.replayPending().then((count) => { log('reports.replayed', { pending: count }); }, () => { log('reports.replay_failed', {}); });
+    }
 
     let shuttingDown = false;
     const shutdown = async (signal: string): Promise<void> => {

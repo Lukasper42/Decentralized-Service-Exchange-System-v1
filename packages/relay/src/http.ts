@@ -109,6 +109,12 @@ export function createRelayServer(relay: Relay, clock: ClockPort, policy: HttpPo
       if (!result.ok) return sendError(res, result.error, origin);
       return send(res, result.value.duplicate ? 200 : 201, { receipt: result.value.receipt, duplicate: result.value.duplicate }, origin);
     }
+    if (method === 'OPTIONS' && origin !== null && path.startsWith('/v1/')) {
+      // CORS preflight for the browser client: only the configured origin, only the methods and header the API uses.
+      res.writeHead(204, { 'access-control-allow-origin': origin, 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '600', 'cache-control': 'no-store', 'content-length': '0' });
+      res.end();
+      return;
+    }
 
     if (method === 'POST' && path === '/v1/reports') {
       if (reportReceiver === undefined) return sendError(res, { code: 'NOT_FOUND', message: 'No such route', path: '' }, origin);
