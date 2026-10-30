@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https: http://*.onion http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'; object-src 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>skillx-web</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./dist/main.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Zum Inhalt springen</a>
+    <header>
+      <h1>SkillX Web-UI</h1>
+      <nav aria-label="Hauptnavigation">
+        <ul id="nav">
+          <li><a href="#/status">Status</a></li>
+          <li><a href="#/identity">Identität</a></li>
+          <li><a href="#/account">Konto</a></li>
+          <li><a href="#/deals">Deals</a></li>
+          <li><a href="#/jury">Jury</a></li>
+          <li><a href="#/explorer">Explorer</a></li>
+          <li><a href="#/messages">Nachrichten</a></li>
+        </ul>
+      </nav>
+    </header>
+    <div id="banner" role="alert" hidden></div>
+    <main id="main"></main>
+    <footer>
+      <p>Prüfung im Browser, nicht strikt (Browser-Verifikation ist nicht RFC-8032-strict).</p>
+    </footer>
+  </body>
+</html>

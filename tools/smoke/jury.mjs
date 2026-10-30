@@ -1,0 +1,85 @@
+import { L, W, workdir, loadChromium } from './paths.mjs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+const T = workdir('jury');
+const chromium = await loadChromium();
+const { createIdentity, recoveryCommitment, signAttestation } = await import(`${L}/dist/packages/crypto/src/index.js`);
+const { HttpTransport, LedgerClient, keyPairSigner } = await import(`${L}/dist/packages/client/src/index.js`);
+const { loadGenesis } = await import(`${L}/dist/apps/relay/genesis.js`);
+const { Projector } = await import(`${L}/dist/packages/relay/src/index.js`);
+const vaultMod = await import(`${W}/dist/vault.js`);
+const results = [];
+const rec = (n, ok, i = '') => { results.push([n, ok]); if (!ok) process.exitCode = 1; console.log(ok ? 'OK  ' : 'FAIL', n, i); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const procs = []; process.on('exit', () => procs.forEach((p) => p.kill()));
+const web = spawn('node', ['serve.mjs', '8080'], { cwd: W, stdio: 'ignore' }); procs.push(web);
+await sleep(800);
+const browser = await chromium.launch(); const page = await (await browser.newContext()).newPage();
+const errs = []; page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+await page.goto('http://127.0.0.1:8080/#/identity');
+const PW = 'correct-horse-battery-staple';
+await page.fill('#pw1', PW); await page.fill('#pw2', PW);
+await page.click('button:has-text("Schlüssel erzeugen")');
+await page.waitForFunction(() => document.querySelector('code')?.textContent?.length > 20, null, { timeout: 30000 });
+const j1pk = (await page.textContent('code')).trim();
+const vj = JSON.parse(await page.evaluate(() => localStorage.getItem('skillx.vault.v1')));
+const j1 = { publicKey: j1pk, privateKey: (await vaultMod.unlock(globalThis.crypto, vj, PW)).value };
+const buyer = createIdentity(), seller = createIdentity(), j2 = createIdentity(), j3 = createIdentity();
+const m = [createIdentity(), createIdentity(), createIdentity()], inviter = createIdentity(), checker = createIdentity();
+rmSync(T, { recursive: true, force: true }); mkdirSync(T, { recursive: true });
+const run = (a) => spawnSync('node', [`${L}/dist/apps/relay/admin-cli.js`, ...a], { encoding: 'utf8', cwd: T });
+const relayPub = /public_key=(\S+)/.exec(run(['keygen', '--out', `${T}/relay.key`]).stdout)[1];
+const all = [buyer, seller, j1, j2, j3];
+writeFileSync(`${T}/cfg.json`, JSON.stringify({ policyId: 'jury-smoke', multisigMembers: m.map((x) => x.publicKey), inviters: [inviter.publicKey], genesisAccounts: all.map((x) => x.publicKey), checkers: [checker.publicKey], issuancePolicyIds: ['beta'], jurorPayoutPerCase: 10, limits: { maxIssuancePerEvent: 100000, maxTreasurySpendPerEvent: 100000, maxDealAmount: 100000 }, treasury: 1000000, grants: [{ recipient: buyer.publicKey, amount: 10000, nonce: 'a'.repeat(64) }] }));
+let r = run(['genesis', 'build', '--config', `${T}/cfg.json`, '--relay-public-key', relayPub, '--out', `${T}/genesis0.json`]);
+const g = JSON.parse(readFileSync(`${T}/genesis0.json`, 'utf8'));
+g.policy.jury.tiers = [{ minDeals: 0, minCounterparties: 0, minAccountAgeDays: 0, requirePositiveBalance: false }];
+const gtext = JSON.stringify(g, null, 2) + '\n'; writeFileSync(`${T}/genesis.json`, gtext);
+const sha = createHash('sha256').update(gtext).digest('hex');
+const start = () => { const p = spawn('node', [`${L}/dist/apps/relay/main.js`], { cwd: T, env: { ...process.env, RELAY_MODE: 'memory', GENESIS_FILE: `${T}/genesis.json`, GENESIS_SHA256: sha, RELAY_KEY_FILE: `${T}/relay.key`, ALLOWED_ORIGIN: 'http://127.0.0.1:8080', PORT: '3000', RATE_PER_IP: '1000', RATE_PER_KEY: '1000' }, stdio: ['ignore', 'ignore', 'inherit'] }); procs.push(p); return p; };
+start();
+let ok = false; for (let i = 0; i < 30 && !ok; i++) { await sleep(300); try { ok = (await fetch('http://127.0.0.1:3000/v1/health')).ok; } catch {} }
+rec('Test-Genesis (Jury-Schwellen 0) + Relay', ok);
+if (!ok) process.exit(1);
+const projCfg = loadGenesis({ path: `${T}/genesis.json`, expectedSha256: sha, files: { readText: (p) => readFileSync(p, 'utf8') }, policyDirectory: null });
+const mk = (who) => new LedgerClient({ transport: new HttpTransport({ baseUrl: 'http://127.0.0.1:3000' }), projector: new Projector(projCfg), clock: { nowMs: () => Date.now() }, signer: keyPairSigner(who) });
+const cl = {}; for (const [n, w] of [['buyer', buyer], ['seller', seller], ['j1', j1], ['j2', j2], ['j3', j3]]) {
+  cl[n] = mk(w); await cl[n].sync();
+  const x = await cl[n].submit('AccountCreated', { pubkey: w.publicKey, recovery_commitment: recoveryCommitment(w.publicKey), invite_ref: null });
+  if (!x.ok) rec(`AccountCreated ${n}`, false, JSON.stringify(x.error));
+}
+const step = async (name, who, type, payload) => { await cl[who].sync(); const x = await cl[who].submit(type, payload); rec(name, x.ok, x.ok ? '' : JSON.stringify(x.error)); return x; };
+const D = '00000000-0000-4000-8000-0000000000aa'; const h = (c) => c.repeat(64);
+const deadline = new Date(Date.now() + 30 * 864e5).toISOString();
+await step('DealCreated', 'buyer', 'DealCreated', { deal_id: D, buyer: buyer.publicKey, seller: seller.publicKey, amount: 1000, criteria_hash: h('c'), deadline });
+await cl.seller.sync();
+rec('DealConsented', (await cl.seller.consentDeal(D)).ok);
+await step('EscrowFunded', 'buyer', 'EscrowFunded', { deal_id: D, from: buyer.publicKey, amount: 1000 });
+await step('DeliverableSubmitted', 'seller', 'DeliverableSubmitted', { deal_id: D, content_hash: h('d'), precheck_ref: null });
+await step('DealRejected', 'buyer', 'DealRejected', { deal_id: D, by: buyer.publicKey, reason_hash: h('e') });
+await step('DisputeOpened', 'buyer', 'DisputeOpened', { deal_id: D, by: buyer.publicKey });
+for (let i = 0; i < 12; i++) { await cl.buyer.sync(); await cl.buyer.submit('DealCreated', { deal_id: `00000000-0000-4000-8000-00000000${(i + 1).toString(16).padStart(4, '0')}`, buyer: buyer.publicKey, seller: seller.publicKey, amount: 2, criteria_hash: h('f'), deadline }); }
+const perms = (a) => a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p]));
+let assigned = false, lastErr = '';
+for (const p of perms([j1.publicKey, j2.publicKey, j3.publicKey])) { await cl.j2.sync(); const x = await cl.j2.submit('JuryAssigned', { deal_id: D, jurors: p, appeal_round: 0 }); if (x.ok) { assigned = true; break; } lastErr = JSON.stringify(x.error); }
+rec('JuryAssigned (3 Juroren, Reihenfolge per Probe)', assigned, lastErr);
+if (!assigned) { await browser.close(); process.exit(1); }
+// UI: j1 stimmt ab
+await page.goto('http://127.0.0.1:8080/#/status');
+await page.fill('#relay-url', 'http://127.0.0.1:3000'); await page.fill('#relay-pubkey', relayPub);
+await page.click('button:has-text("Speichern und verbinden")'); await sleep(2500);
+await page.goto('http://127.0.0.1:8080/#/identity'); await page.fill('#unlock-pw', PW); await page.click('button:has-text("Entsperren")');
+await page.waitForFunction(() => /entsperrt: ja/.test(document.querySelector('main').innerText), null, { timeout: 30000 });
+await page.goto('http://127.0.0.1:8080/#/jury'); await sleep(800);
+const jtxt = await page.locator('main').innerText();
+rec('Jury-Ansicht zeigt den offenen Fall', jtxt.includes(D.slice(0, 8)), jtxt.replace(/\n+/g, ' ').slice(0, 250));
+await page.getByRole('button', { name: 'Käufer', exact: true }).click(); await sleep(2500);
+const jafter = await page.locator('main').innerText();
+const ent = JSON.stringify(await (await fetch('http://127.0.0.1:3000/v1/entries?from=1&to=100')).json());
+rec('castVote in der UI: JuryVoted auf Relay', ent.includes('"type":"JuryVoted"'), jafter.replace(/\n+/g, ' ').slice(0, 250));
+await step('j2 JuryVoted', 'j2', 'JuryVoted', { deal_id: D, juror: j2.publicKey, vote: 'buyer', appeal_round: 0, sig: signAttestation('jury-vote', { deal_id: D, juror: j2.publicKey, vote: 'buyer', appeal_round: 0 }, j2.privateKey) });
+const rv = await cl.j3.sync() && await cl.j3.castVote(D, 'seller'); rec('j3 castVote (Client)', rv.ok, rv.ok ? '' : JSON.stringify(rv.error));
+await step('DisputeResolved (2:1 Käufer)', 'j2', 'DisputeResolved', { deal_id: D, outcome: 'buyer', appeal_round: 0 });
+console.log('consoleErrors', errs);
+await browser.close(); process.exit(process.exitCode ?? 0);
