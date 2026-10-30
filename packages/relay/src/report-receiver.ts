@@ -1,4 +1,4 @@
-import { appendFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import { canonical, strictVerify } from '../../crypto/src/index.js';
 import type { Hash, Pubkey } from '../../domain/src/protocol.js';
 import type { RelayError } from './relay.js';
@@ -107,6 +107,7 @@ export function validateReport(input: unknown, allowlist: readonly ListenerKeyAl
 export interface ReportReceiverDeps {
   readonly allowlist: readonly ListenerKeyAllowlistEntry[];
   readonly outbox: ReportOutbox;
+  readonly knownFindingIds?: readonly Hash[];
 }
 
 /**
@@ -115,10 +116,20 @@ export interface ReportReceiverDeps {
  */
 export class ReportReceiver {
   private readonly accepted = new Set<Hash>();
+  private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly deps: ReportReceiverDeps) {}
+  constructor(private readonly deps: ReportReceiverDeps) {
+    for (const findingId of deps.knownFindingIds ?? []) this.accepted.add(findingId);
+  }
 
-  async accept(input: unknown): Promise<ReportResult<{ readonly findingId: Hash; readonly duplicate: boolean }>> {
+  /** Serializes accepts so concurrent duplicates cannot both pass the idempotency check. */
+  accept(input: unknown): Promise<ReportResult<{ readonly findingId: Hash; readonly duplicate: boolean }>> {
+    const next = this.queue.then(() => this.acceptInner(input));
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async acceptInner(input: unknown): Promise<ReportResult<{ readonly findingId: Hash; readonly duplicate: boolean }>> {
     const report = validateReport(input, this.deps.allowlist);
     if (!report.ok) return report;
     if (this.accepted.has(report.value.finding_id)) return ok({ findingId: report.value.finding_id, duplicate: true });
@@ -140,10 +151,11 @@ export interface NdjsonReportOutboxOptions {
   readonly baseBackoffMs?: number;
   readonly delay?: (ms: number) => Promise<void>;
   readonly appendLine?: (path: string, line: string) => Promise<void>;
+  readonly onExhausted?: (report: CircularTradingReport) => void;
 }
 
 const defaultDelay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-const defaultAppendLine = (path: string, line: string): Promise<void> => appendFile(path, line, 'utf8');
+const defaultAppendLine = (path: string, line: string) => appendFile(path, line, 'utf8');
 
 /** Local NDJSON outbox: append first, then deliver with exponential backoff. Permanent failures are never retried. */
 export class NdjsonReportOutbox implements ReportOutbox {
@@ -151,7 +163,8 @@ export class NdjsonReportOutbox implements ReportOutbox {
 
   async append(report: CircularTradingReport): Promise<void> {
     const appendLine = this.options.appendLine ?? defaultAppendLine;
-    await appendLine(this.options.path, `${JSON.stringify(report)}\n`);
+    await appendLine(this.options.path, `${JSON.stringify(report)}
+`);
     void this.deliverWithBackoff(report);
   }
 
@@ -162,8 +175,27 @@ export class NdjsonReportOutbox implements ReportOutbox {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const outcome = await this.options.deliver(report).catch(() => 'retryable' as const);
       if (outcome !== 'retryable') return;
-      if (attempt === maxAttempts) return;
+      if (attempt === maxAttempts) {
+        this.options.onExhausted?.(report);
+        return;
+      }
       await delay(baseBackoffMs * 2 ** (attempt - 1));
     }
   }
-}
+
+  /** Loads finding ids already persisted in the NDJSON file so idempotency survives restarts. */
+  async loadFindingIds(): Promise<Hash[]> {
+    try {
+      const text = await readFile(this.options.path, 'utf8');
+      const lines = text.split(String.fromCharCode(10));
+      const ids: Hash[] = [];
+      for (const line of lines) {
+        if (line.trim().length === 0) continue;
+        ids.push((JSON.parse(line) as CircularTradingReport).finding_id);
+      }
+      return ids;
+    } catch {
+      return [];
+    }
+  }
+  }
