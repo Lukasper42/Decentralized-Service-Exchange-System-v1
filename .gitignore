@@ -4,3 +4,8 @@ dist/
 .env
 coverage/
 eslint.txt
+relay.key
+b-key.json
+genesis.json
+genesis-config.json
+skillx-vault.json

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../state.js';
+import { actionsBlocked, blockedReasons } from '../views/common.js';
 
 test('subscribeNow ruft den Listener sofort und bei jeder Änderung auf, subscribe nur bei Änderungen', () => {
   const store = new Store();
@@ -18,4 +19,17 @@ test('subscribeNow ruft den Listener sofort und bei jeder Änderung auf, subscri
   store.set({ tipSequence: 4 });
   assert.deepEqual(nowSeen, [null, 3]);
   assert.deepEqual(lateSeen, [3]);
+});
+
+test('blockedReasons nennt jeden zutreffenden Sperrgrund einzeln', () => {
+  const ok = { unlocked: true, verifierBroken: false, readOnly: false, transportError: false };
+  assert.deepEqual(blockedReasons(ok), []);
+  assert.equal(actionsBlocked(ok), false);
+  assert.deepEqual(blockedReasons({ ...ok, unlocked: false }), ['Schlüssel gesperrt']);
+  assert.deepEqual(blockedReasons({ ...ok, verifierBroken: true }), ['Divergenz in der Kette']);
+  assert.deepEqual(blockedReasons({ ...ok, readOnly: true }), ['Relay ist nur lesbar']);
+  assert.deepEqual(blockedReasons({ ...ok, transportError: true }), ['letzte Synchronisation fehlgeschlagen']);
+  const all = { unlocked: false, verifierBroken: true, readOnly: true, transportError: true };
+  assert.equal(blockedReasons(all).length, 4);
+  assert.equal(actionsBlocked({ ...ok, transportError: true }), true);
 });

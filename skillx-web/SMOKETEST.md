@@ -6,9 +6,9 @@ Relay im Speicher-Modus (RELAY_MODE=memory): nach Neustart ist alles weg.
 ## A. Relay vorbereiten (Ordner skill-exchange-ledger)
 1. `npm run build`
 2. Relay-Schlüssel: `node dist/apps/relay/admin-cli.js keygen --out relay.key` (Ausgabe `public_key=...` merken; relay.key nicht einchecken)
-3. Web-UI starten (Schritt B), im Reiter Identität drei Schlüssel erzeugen (A, B, C) und öffentliche Schlüssel notieren.
-4. genesis-config.json anlegen (Felder: policyId, multisigMembers, inviters, genesisAccounts, checkers, issuancePolicyIds, jurorPayoutPerCase, limits{maxIssuancePerEvent,maxTreasurySpendPerEvent,maxDealAmount}, treasury, grants[{recipient,amount,nonce}]). Konten A und B in genesisAccounts, je ein Grant (z. B. 1000), multisigMembers: 3 Schlüssel. Werte/Grenzen prüft `genesis build`; Fehlermeldung zeigt das Feld.
-5. `node dist/apps/relay/admin-cli.js genesis build --config genesis-config.json --relay-public-key <public_key> --out genesis.json` (gibt GENESIS_SHA256 aus)
+3. Web-UI starten (Schritt B), im Reiter Identität einen Schlüssel erzeugen (die UI speichert genau einen) und den Pubkey notieren.
+4. Im Ordner skill-exchange-ledger: `node ../tools/manual/make-genesis.mjs "<Pubkey aus der UI>" "<public_key aus Schritt 2>"` (schreibt genesis-config.json, genesis.json und b-key.json für Konto B, gibt GENESIS_SHA256 aus; alte genesis.json wird ersetzt). Nur ein Schlüssel kommt aus der UI (die UI speichert genau einen); Konto B und die Multisig-Schlüssel erzeugt das Skript.
+5. GENESIS_SHA256 merken (oder später per `(Get-FileHash genesis.json -Algorithm SHA256).Hash.ToLower()` lesen).
 6. Relay starten:
    ```
    $env:RELAY_MODE="memory"; $env:GENESIS_FILE="./genesis.json"; $env:GENESIS_SHA256="<hash>"
@@ -24,9 +24,9 @@ Relay im Speicher-Modus (RELAY_MODE=memory): nach Neustart ist alles weg.
 1. Status: Relay-URL http://127.0.0.1:3000 und gepinnten Relay-Pubkey (`public_key=` aus keygen, 44 Bytes SPKI Base64) eintragen, "Speichern und verbinden". Health ok, Tip und lokal verifizierte Länge gleich.
 2. Sync: Kette verifiziert ohne Fehler, Pin gesetzt. Relay neu starten (Speicher leer) -> UI meldet Rollback/Fork; Reset-Button löscht den Pin.
 3. Identität: Schlüssel erzeugen, Passwort >= 16 Zeichen; sperren, entsperren, falsches Passwort wird abgelehnt; nach 10 Min Auto-Sperre (optional).
-4. Konto: Genesis-Grant erscheint als erhalten (abgeleitet, nicht autoritativ).
+4. Konto: zeigt vor dem ersten Eintrag überall 0 (Genesis-Grants sind keine Ledger-Einträge); Summen nur aus der Kette abgeleitet, nicht autoritativ.
 5. Explorer: Einträge blätterbar, Hashes sichtbar.
-6. Deal: DealCreated (Betrag >= 2) mit Konto A/B per Relay-Admin oder Test-Client anlegen; in Deals-Ansicht sichtbar.
+6. Deal: Vault in der UI exportieren (Identität, Exportieren), dann im Ordner skill-exchange-ledger: `node ../tools/manual/deal-test.mjs "<Pubkey>" "$HOME\Downloads\skillx-vault.json" '<Passwort>'` (legt Konten und einen Deal an, Passwort in einfachen Anführungszeichen); Deal ist in der Deals-Ansicht sichtbar.
 7. consentDeal: Schlüssel entsperren, in Deals beim Deal als Verkäufer "Zustimmen" (Zustand wechselt auf zugestimmt) -> Eintrag erscheint, Kette bleibt verifiziert.
 8. castVote: nur sinnvoll mit zugewiesener Jury; sonst überspringen und notieren.
 9. Fehlerfälle: falsche Relay-URL (http://example.com wird abgelehnt), Relay aus (verständliche Meldung), ALLOWED_ORIGIN falsch (CORS-Fehler sichtbar).
