@@ -1,6 +1,5 @@
 name: CI
 on:
-  workflow_dispatch:
   push:
     branches:
       - master
@@ -11,9 +10,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  test:
+  ledger:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: skill-exchange-ledger
     services:
       postgres:
         image: postgres:16
@@ -34,6 +36,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: skill-exchange-ledger/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -44,21 +47,52 @@ jobs:
           npm run coverage | tee coverage.txt
           echo "" >> "$GITHUB_STEP_SUMMARY"
           cat coverage.txt >> "$GITHUB_STEP_SUMMARY"
-
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: skill-exchange-ledger
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: skill-exchange-ledger/package-lock.json
       - run: npm ci
       - name: Lint
         run: |
           if [ -f eslint.config.js ]; then
             npx eslint .
           else
-            echo "No eslint.config.js found — skipping lint"
+            echo "No eslint.config.js found - skipping lint"
           fi
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: skillx-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: skillx-web/package-lock.json
+      - run: npm ci
+      - run: npm test
+  mailbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: skillx-mailbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test

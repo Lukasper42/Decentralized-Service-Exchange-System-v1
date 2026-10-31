@@ -1,29 +1,12 @@
 {
-  "name": "skill-exchange-ledger",
+  "name": "skillx",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
+  "description": "SkillX: Ledger, Web-UI und Postfach in einem Repository",
   "scripts": {
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test \"dist/**/*.test.js\"",
-    "coverage": "npm run build && node --test --experimental-test-coverage \"dist/**/*.test.js\"",
-    "start": "node dist/apps/relay/main.js",
-    "admin": "node dist/apps/relay/admin-cli.js"
-  },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/node": "^22.13.0",
-    "eslint": "^10.13.0",
-    "typescript": "^5.7.0",
-    "typescript-eslint": "^8.72.0"
-  },
-  "dependencies": {
-    "pg": "^8.23.1"
+    "build": "npm --prefix skill-exchange-ledger run build && npm --prefix skillx-web run build && npm --prefix skillx-mailbox run build",
+    "test": "npm --prefix skill-exchange-ledger test && npm --prefix skillx-web test && npm --prefix skillx-mailbox test",
+    "smoke": "node tools/smoke/ui.mjs && node tools/smoke/messages.mjs && node tools/smoke/jury.mjs && node tools/smoke/reports.mjs"
   }
 }
