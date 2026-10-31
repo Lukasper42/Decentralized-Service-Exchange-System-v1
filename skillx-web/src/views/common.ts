@@ -37,11 +37,31 @@ export function liveRegion(cls = 'action-status'): HTMLParagraphElement {
   return p;
 }
 
-export function actionsBlocked(state: {
+export interface BlockState {
   unlocked: boolean;
   verifierBroken: boolean;
   readOnly: boolean;
   transportError: boolean;
-}): boolean {
-  return !state.unlocked || state.verifierBroken || state.readOnly || state.transportError;
+}
+
+/** Nennt die tatsächlichen Gründe, warum Aktionen gesperrt sind (leer = nicht gesperrt). */
+export function blockedReasons(state: BlockState): string[] {
+  const reasons: string[] = [];
+  if (!state.unlocked) {
+    reasons.push('Schlüssel gesperrt');
+  }
+  if (state.verifierBroken) {
+    reasons.push('Divergenz in der Kette');
+  }
+  if (state.readOnly) {
+    reasons.push('Relay ist nur lesbar');
+  }
+  if (state.transportError) {
+    reasons.push('letzte Synchronisation fehlgeschlagen');
+  }
+  return reasons;
+}
+
+export function actionsBlocked(state: BlockState): boolean {
+  return blockedReasons(state).length > 0;
 }

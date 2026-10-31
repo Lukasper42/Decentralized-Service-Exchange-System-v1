@@ -1,4 +1,4 @@
-import { el, liveRegion, text, actionsBlocked, type Deps } from './common.js';
+import { el, liveRegion, text, blockedReasons, type Deps } from './common.js';
 import { deriveDeals } from '../project.js';
 import { formatAmount, formatError, formatIso } from '../format.js';
 import { consentDeal } from '../actions.js';
@@ -22,18 +22,20 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     table.replaceChildren();
     const own = s.ownPubkey;
     const entries = s.verifier ? s.verifier.getEntries() : [];
-    const blocked = actionsBlocked({
+    const reasons = blockedReasons({
       unlocked: s.unlocked,
       verifierBroken: s.verifier !== null && s.verifier.isBroken,
       readOnly: s.health !== null && s.health.readOnly,
       transportError: !s.sync.lastSyncOk,
     });
+    const blocked = reasons.length > 0;
+    const syncDetail = s.sync.lastError ? ` (${formatError(s.sync.lastError)})` : '';
     text(
       hint,
       s.actionError
         ? `Letzte Aktion fehlgeschlagen: ${formatError(s.actionError)}`
         : blocked
-          ? 'Aktionen gesperrt (kein entsperrter Schlüssel, Divergenz, Nur-Lese-Relay oder Netzwerkfehler).'
+          ? `Aktionen gesperrt: ${reasons.join('; ')}${syncDetail}.`
           : '',
     );
     const thead = el('thead');
