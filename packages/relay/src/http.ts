@@ -118,14 +118,14 @@ export function createRelayServer(relay: Relay, clock: ClockPort, policy: HttpPo
 
     if (method === 'POST' && path === '/v1/reports') {
       if (reportReceiver === undefined) return sendError(res, { code: 'NOT_FOUND', message: 'No such route', path: '' }, origin);
-      if (perIp.allow(`ip:${clientIpOf(req.socket.remoteAddress, req.headers['x-forwarded-for'], trustedProxies)}`) === false) return sendError(res, { code: 'RATE_LIMITED', message: 'Too many requests', path: '' }, origin);
+      if (!perIp.allow(`ip:${clientIpOf(req.socket.remoteAddress, req.headers['x-forwarded-for'], trustedProxies)}`)) return sendError(res, { code: 'RATE_LIMITED', message: 'Too many requests', path: '' }, origin);
       const body = await readBody(req, policy.maxBodyBytes);
       if (body === 'too_large') return sendError(res, { code: 'TOO_LARGE', message: 'Request body is too large', path: '' }, origin);
       let parsed: unknown;
       try { parsed = JSON.parse(body.toString('utf8')); }
       catch { return sendError(res, { code: 'BAD_REQUEST', message: 'Body is not valid JSON', path: '$' }, origin); }
       const result = await reportReceiver.accept(parsed);
-      if (result.ok === false) return sendError(res, result.error, origin);
+      if (!result.ok) return sendError(res, result.error, origin);
       return send(res, result.value.duplicate ? 200 : 201, { finding_id: result.value.findingId, duplicate: result.value.duplicate }, origin);
     }
     if (method !== 'GET') return sendError(res, { code: 'NOT_FOUND', message: 'No such route', path }, origin);

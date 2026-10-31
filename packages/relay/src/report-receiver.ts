@@ -80,7 +80,7 @@ export function validateReport(input: unknown, allowlist: readonly ListenerKeyAl
   const reverse = validateReference(report.reverse, 'reverse');
   if (!reverse.ok) return reverse;
   if (!isPositiveSafeInteger(report.through_sequence)) return badRequest('through_sequence must be a positive safe integer', 'through_sequence');
-  const throughSequence = report.through_sequence as number;
+  const throughSequence = report.through_sequence;
   if (!isHash(report.through_receipt_hash)) return badRequest('through_receipt_hash must be a 64-character hex hash', 'through_receipt_hash');
   if (!isHash(report.finding_id)) return badRequest('finding_id must be a 64-character hex hash', 'finding_id');
   if (!isPubkey(report.listener_pubkey)) return badRequest('listener_pubkey must be a public key', 'listener_pubkey');
