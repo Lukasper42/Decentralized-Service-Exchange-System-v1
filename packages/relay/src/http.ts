@@ -3,6 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Relay, RelayError, RelayErrorCode } from './relay.js';
 import type { ClockPort } from './ports.js';
+import type { ReportReceiver } from './report-receiver.js';
 import { RateLimiter } from './ratelimit.js';
 
 export interface HttpPolicy {
@@ -85,7 +86,7 @@ function intParam(value: string | null, fallback: number): number | null {
 }
 
 /** Minimal HTTP surface on Node built-ins. Errors always have the shape {code, message, path}; no stack traces leave the process. */
-export function createRelayServer(relay: Relay, clock: ClockPort, policy: HttpPolicy): RelayHttpServer {
+export function createRelayServer(relay: Relay, clock: ClockPort, policy: HttpPolicy, reportReceiver?: ReportReceiver): RelayHttpServer {
   const perIp = new RateLimiter(policy.perIpLimit, policy.windowMs, clock);
   const perKey = new RateLimiter(policy.perKeyLimit, policy.windowMs, clock);
   const origin = policy.allowedOrigin;
@@ -107,6 +108,25 @@ export function createRelayServer(relay: Relay, clock: ClockPort, policy: HttpPo
       const result = await relay.submitAsync(parsed);
       if (!result.ok) return sendError(res, result.error, origin);
       return send(res, result.value.duplicate ? 200 : 201, { receipt: result.value.receipt, duplicate: result.value.duplicate }, origin);
+    }
+    if (method === 'OPTIONS' && origin !== null && path.startsWith('/v1/')) {
+      // CORS preflight for the browser client: only the configured origin, only the methods and header the API uses.
+      res.writeHead(204, { 'access-control-allow-origin': origin, 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '600', 'cache-control': 'no-store', 'content-length': '0' });
+      res.end();
+      return;
+    }
+
+    if (method === 'POST' && path === '/v1/reports') {
+      if (reportReceiver === undefined) return sendError(res, { code: 'NOT_FOUND', message: 'No such route', path: '' }, origin);
+      if (!perIp.allow(`ip:${clientIpOf(req.socket.remoteAddress, req.headers['x-forwarded-for'], trustedProxies)}`)) return sendError(res, { code: 'RATE_LIMITED', message: 'Too many requests', path: '' }, origin);
+      const body = await readBody(req, policy.maxBodyBytes);
+      if (body === 'too_large') return sendError(res, { code: 'TOO_LARGE', message: 'Request body is too large', path: '' }, origin);
+      let parsed: unknown;
+      try { parsed = JSON.parse(body.toString('utf8')); }
+      catch { return sendError(res, { code: 'BAD_REQUEST', message: 'Body is not valid JSON', path: '$' }, origin); }
+      const result = await reportReceiver.accept(parsed);
+      if (!result.ok) return sendError(res, result.error, origin);
+      return send(res, result.value.duplicate ? 200 : 201, { finding_id: result.value.findingId, duplicate: result.value.duplicate }, origin);
     }
     if (method !== 'GET') return sendError(res, { code: 'NOT_FOUND', message: 'No such route', path }, origin);
     if (path === '/v1/health') return send(res, 200, { ok: true, readOnly: relay.readOnly, tip: relay.tipSequence }, origin);
