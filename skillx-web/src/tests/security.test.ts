@@ -34,12 +34,12 @@ function entry(seq: number, tag: string): LedgerEntry {
   } as unknown as LedgerEntry;
 }
 
-test('derivePublicKey stimmt mit generiertem Public Key überein', async () => {
+test('derivePublicKey matches the generated public key', async () => {
   const pair = await generateKeyPair(port);
   assert.equal(await derivePublicKey(port, pair.privateKeyPkcs8), pair.publicKey);
 });
 
-test('signAttestationWithKey ist mit dem Public Key verifizierbar', async () => {
+test('signAttestationWithKey is verifiable with the public key', async () => {
   const pair = await generateKeyPair(port);
   const key = await importNonExtractablePrivate(port, pair.privateKeyPkcs8);
   const body = { deal_id: 'd1' };
@@ -48,7 +48,7 @@ test('signAttestationWithKey ist mit dem Public Key verifizierbar', async () => 
   await assert.rejects(port.subtle.exportKey('pkcs8', key));
 });
 
-test('unlockSigner: Roundtrip, falscher Public Key, falsches Passwort', async () => {
+test('unlockSigner: roundtrip, wrong public key, wrong password', async () => {
   const pw = 'a-long-enough-passphrase';
   const created = await createVault(port, random, clock, pw);
   assert.ok(created.ok);
@@ -66,7 +66,7 @@ test('unlockSigner: Roundtrip, falscher Public Key, falsches Passwort', async ()
   assert.equal(imported.value.publicKey, vault.publicKey);
 });
 
-test('importFile: Iterationsgrenzen', async () => {
+test('importFile: iteration limits', async () => {
   const created = await createVault(port, random, clock, 'a-long-enough-passphrase');
   assert.ok(created.ok);
   const base = JSON.parse(exportFile(created.value.vault)) as Record<string, unknown>;
@@ -76,7 +76,7 @@ test('importFile: Iterationsgrenzen', async () => {
   }
 });
 
-test('Pin: Fortschritt, Rollback, Fork, Reset', async () => {
+test('Pin: progress, rollback, fork, reset', async () => {
   const st = memStorage();
   const relay = 'relay-key';
   const chain = [entry(1, 'a'), entry(2, 'b'), entry(3, 'c')];
@@ -93,13 +93,13 @@ test('Pin: Fortschritt, Rollback, Fork, Reset', async () => {
   assert.equal(st.map.has(PIN_STORAGE_KEY), false);
 });
 
-test('Pin: kaputter Speicherinhalt wird ignoriert', async () => {
+test('Pin: broken stored content is ignored', async () => {
   const st = memStorage();
   st.set(PIN_STORAGE_KEY, '{"relayPubkey":1}');
   assert.equal(loadPin(st), null);
 });
 
-test('readCappedText: Limit wird erzwungen', async () => {
+test('readCappedText: limit is enforced', async () => {
   assert.equal(await readCappedText(new Response('hallo'), 100), 'hallo');
   await assert.rejects(readCappedText(new Response('x'.repeat(200)), 100));
   assert.ok(MAX_RESPONSE_BYTES >= 1024 * 1024);

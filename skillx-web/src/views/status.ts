@@ -19,14 +19,14 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   const privacy = el('p', 'notice');
   text(
     privacy,
-    'Anonymität: Der Relay sieht deine IP-Adresse und Zugriffszeiten. Diese UI kann sie nicht verbergen. Nutze den Tor Browser (am besten mit einem .onion-Relay) oder ein vertrauenswürdiges VPN. Dein Pseudonym (Public Key) ist auf der Kette öffentlich.',
+    'Anonymity: the relay sees your IP address and access times. This UI cannot hide them. Use Tor Browser (ideally with an .onion relay) or a trustworthy VPN. Your pseudonym (public key) is public on the chain.',
   );
   root.append(privacy);
 
   const form = el('form');
   const urlLabel = el('label');
   urlLabel.htmlFor = 'relay-url';
-  text(urlLabel, 'Relay-URL');
+  text(urlLabel, 'Relay URL');
   const urlInput = el('input');
   urlInput.id = 'relay-url';
   urlInput.type = 'url';
@@ -34,7 +34,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   urlInput.value = deps.store.get().relayUrl;
   const pkLabel = el('label');
   pkLabel.htmlFor = 'relay-pubkey';
-  text(pkLabel, 'Gepinnter Relay-Pubkey (Base64, 44 Bytes SPKI)');
+  text(pkLabel, 'Pinned relay pubkey (Base64, 44 bytes SPKI)');
   const pkInput = el('input');
   pkInput.id = 'relay-pubkey';
   pkInput.type = 'text';
@@ -42,7 +42,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   pkInput.value = deps.store.get().relayPubkey ?? '';
   const saveBtn = el('button', 'btn');
   saveBtn.type = 'submit';
-  text(saveBtn, 'Speichern und verbinden');
+  text(saveBtn, 'Save and connect');
   const statusMsg = liveRegion();
   form.append(urlLabel, urlInput, pkLabel, pkInput, saveBtn, statusMsg);
   form.addEventListener('submit', (ev) => {
@@ -55,24 +55,24 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       return;
     }
     if (!isValidPubkey(pk)) {
-      text(
-        statusMsg,
-        'Ungültiger Relay-Pubkey (striktes Base64, 44 Bytes, SPKI-Präfix erforderlich).',
-      );
+      text(statusMsg, 'Invalid relay pubkey (strict Base64, 44 bytes, SPKI prefix required).');
       return;
     }
     deps.store.set({ relayUrl: check.url, relayPubkey: pk });
-    deps.notify('Relay konfiguriert.', null);
+    deps.notify('Relay configured.', null);
     void deps.applyRelayConfig();
   });
   root.append(form);
 
   const pinBtn = el('button', 'btn');
   pinBtn.type = 'button';
-  text(pinBtn, 'Gemerkten Kettenstand zurücksetzen');
+  text(pinBtn, 'Reset remembered chain state');
   pinBtn.addEventListener('click', () => {
     clearPin(browserStorage);
-    text(statusMsg, 'Gemerkter Kettenstand gelöscht (nur nötig, wenn der Relay bewusst zurückgesetzt wurde).');
+    text(
+      statusMsg,
+      'Remembered chain state cleared (only needed if the relay was reset on purpose).',
+    );
   });
   root.append(pinBtn);
 
@@ -89,9 +89,9 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   term('readOnly', 'st-readonly');
   term('tipSequence', 'st-tip');
   term('stateHash', 'st-statehash');
-  term('Lokal verifizierte Länge', 'st-local');
-  term('Letzter Checkpoint (Sequenz)', 'st-cp');
-  term('Checkpoint geprüft', 'st-cp-ok');
+  term('Locally verified length', 'st-local');
+  term('Latest checkpoint (sequence)', 'st-cp');
+  term('Checkpoint verified', 'st-cp-ok');
   root.append(dl);
 
   const setDd = (id: string, v: string): void => {
@@ -102,15 +102,15 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   };
 
   const unsubscribe = deps.store.subscribeNow((s) => {
-    setDd('st-health', s.health ? (s.health.ok ? 'ok' : 'Fehler') : 'keine Daten');
-    setDd('st-readonly', s.health ? (s.health.readOnly ? 'ja' : 'nein') : '–');
+    setDd('st-health', s.health ? (s.health.ok ? 'ok' : 'error') : 'no data');
+    setDd('st-readonly', s.health ? (s.health.readOnly ? 'yes' : 'no') : '–');
     setDd('st-tip', s.tipSequence === null ? '–' : String(s.tipSequence));
     setDd('st-statehash', s.stateHash ? shortHash(s.stateHash) : '–');
     setDd('st-local', String(s.localLength));
-    setDd('st-cp', s.checkpoint ? String(s.checkpoint.sequence) : 'kein');
+    setDd('st-cp', s.checkpoint ? String(s.checkpoint.sequence) : 'none');
     setDd(
       'st-cp-ok',
-      s.checkpointVerified === null ? '–' : s.checkpointVerified ? 'ja' : 'nein',
+      s.checkpointVerified === null ? '–' : s.checkpointVerified ? 'yes' : 'no',
     );
     const broken = s.verifier !== null && s.verifier.isBroken;
     if (broken && s.verifier) {
@@ -118,11 +118,11 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       banner.hidden = false;
       text(
         banner,
-        `Divergenz erkannt: ${e ? formatError(e) : 'unbekannter Fehler'} – Aktionen gesperrt.`,
+        `Divergence detected: ${e ? formatError(e) : 'unknown error'} – actions blocked.`,
       );
     } else if (s.sync.lastError) {
       banner.hidden = false;
-      text(banner, `Sync-Fehler: ${formatError(s.sync.lastError)}`);
+      text(banner, `Sync error: ${formatError(s.sync.lastError)}`);
     } else {
       banner.hidden = true;
       text(banner, '');

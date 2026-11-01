@@ -42,7 +42,7 @@ function toApiError(e: unknown, fallbackPath: string): Result<never> {
   if (e instanceof GuardError) {
     return err(e.code as ErrorCode, e.message, e.gpath);
   }
-  return err('TRANSPORT', 'Antwort hat unerwartete Form', fallbackPath);
+  return err('TRANSPORT', 'Response has unexpected shape', fallbackPath);
 }
 
 async function requestJson(
@@ -62,7 +62,7 @@ async function requestJson(
     try {
       body = await res.json();
     } catch {
-      return transportError('Antwort ist kein gültiges JSON', url);
+      return transportError('Response is not valid JSON', url);
     }
     if (res.status >= 400) {
       if (isRecord(body)) {
@@ -72,14 +72,14 @@ async function requestJson(
           const path = field(body, 'path', '$', guardString);
           return err(code, message.slice(0, 300), path.slice(0, 200));
         } catch {
-          return transportError('Fehlerantwort unvollständig', url);
+          return transportError('Error response incomplete', url);
         }
       }
-      return transportError('Fehlerantwort ohne Objektform', url);
+      return transportError('Error response is not an object', url);
     }
     return ok(body);
   } catch {
-    return transportError('Netzwerkfehler oder Timeout', url);
+    return transportError('Network error or timeout', url);
   } finally {
     clearTimeout(timer);
   }
@@ -87,7 +87,7 @@ async function requestJson(
 
 function parseSignedEvent(value: unknown, path: string): SignedEvent {
   if (!isRecord(value)) {
-    throw new GuardError('ENVELOPE', 'Event muss ein Objekt sein', path);
+    throw new GuardError('ENVELOPE', 'Event must be an object', path);
   }
   const typeStr = field(value, 'type', path, guardString);
   let foundType: (typeof EVENT_TYPES)[number] | null = null;
@@ -98,11 +98,11 @@ function parseSignedEvent(value: unknown, path: string): SignedEvent {
     }
   }
   if (!foundType) {
-    throw new GuardError('UNKNOWN_TYPE', `Unbekannter Event-Typ "${typeStr}"`, `${path}.type`);
+    throw new GuardError('UNKNOWN_TYPE', `Unknown event type "${typeStr}"`, `${path}.type`);
   }
   const version = field(value, 'version', path, guardSafeInt);
   if (version !== 1) {
-    throw new GuardError('VERSION', 'Nur Version 1 erlaubt', `${path}.version`);
+    throw new GuardError('VERSION', 'Only version 1 allowed', `${path}.version`);
   }
   return {
     type: foundType,
@@ -119,7 +119,7 @@ function parseSignedEvent(value: unknown, path: string): SignedEvent {
 
 function parseReceipt(value: unknown, path: string): Receipt {
   if (!isRecord(value)) {
-    throw new GuardError('ENVELOPE', 'Receipt muss ein Objekt sein', path);
+    throw new GuardError('ENVELOPE', 'Receipt must be an object', path);
   }
   return {
     sequence: field(value, 'sequence', path, guardPositiveInt),
@@ -135,7 +135,7 @@ function parseReceipt(value: unknown, path: string): Receipt {
 
 function parseLedgerEntry(value: unknown, path: string): LedgerEntry {
   if (!isRecord(value)) {
-    throw new GuardError('ENVELOPE', 'Eintrag muss ein Objekt sein', path);
+    throw new GuardError('ENVELOPE', 'Entry must be an object', path);
   }
   return {
     event: parseSignedEvent(field(value, 'event', path, (v, p) => v && isRecord(v) ? v : failObj(p)), path + '.event'),
@@ -144,12 +144,12 @@ function parseLedgerEntry(value: unknown, path: string): LedgerEntry {
 }
 
 function failObj(path: string): never {
-  throw new GuardError('ENVELOPE', 'Objekt erwartet', path);
+  throw new GuardError('ENVELOPE', 'Object expected', path);
 }
 
 function parseCheckpoint(value: unknown, path: string): SignedCheckpoint {
   if (!isRecord(value)) {
-    throw new GuardError('ENVELOPE', 'Checkpoint muss ein Objekt sein', path);
+    throw new GuardError('ENVELOPE', 'Checkpoint must be an object', path);
   }
   return {
     sequence: field(value, 'sequence', path, guardPositiveInt),
@@ -175,17 +175,17 @@ export class RelayClient {
     }
     try {
       if (!isRecord(r.value)) {
-        return transportError('Health keine Objektantwort', '/v1/health');
+        return transportError('Health response is not an object', '/v1/health');
       }
       const okFlag = field(r.value, 'ok', '$', (v, p) => {
         if (v !== true) {
-          throw new GuardError('STATE', 'ok nicht wahr', p);
+          throw new GuardError('STATE', 'ok is not true', p);
         }
         return true as const;
       });
       const readOnly = field(r.value, 'readOnly', '$', (v, p) => {
         if (typeof v !== 'boolean') {
-          throw new GuardError('FIELD_FORMAT', 'Boolean erwartet', p);
+          throw new GuardError('FIELD_FORMAT', 'Boolean expected', p);
         }
         return v;
       });
@@ -203,7 +203,7 @@ export class RelayClient {
     }
     try {
       if (!isRecord(r.value)) {
-        return transportError('Tip keine Objektantwort', '/v1/tip');
+        return transportError('Tip response is not an object', '/v1/tip');
       }
       return ok({
         tipSequence: field(r.value, 'tipSequence', '$', guardPositiveInt),
@@ -234,7 +234,7 @@ export class RelayClient {
     }
     try {
       if (!isRecord(r.value)) {
-        return transportError('Entries keine Objektantwort', url);
+        return transportError('Entries response is not an object', url);
       }
       const list = field(r.value, 'entries', '$', (v, p) =>
         guardArray(v, p, (x, xp) => parseLedgerEntry(x, xp)),
@@ -256,7 +256,7 @@ export class RelayClient {
     }
     try {
       if (!isRecord(r.value)) {
-        return transportError('Signer-Tip keine Objektantwort', url);
+        return transportError('Signer tip response is not an object', url);
       }
       return ok({
         signer: field(r.value, 'signer', '$', guardString),
@@ -279,7 +279,7 @@ export class RelayClient {
     }
     try {
       if (!isRecord(r.value)) {
-        return transportError('Post keine Objektantwort', url);
+        return transportError('Post response is not an object', url);
       }
       const receipt = parseReceipt(
         field(r.value, 'receipt', '$', (v, p) => (isRecord(v) ? v : failObj(p))),
@@ -287,7 +287,7 @@ export class RelayClient {
       );
       const duplicate = field(r.value, 'duplicate', '$', (v, p) => {
         if (typeof v !== 'boolean') {
-          throw new GuardError('FIELD_FORMAT', 'Boolean erwartet', p);
+          throw new GuardError('FIELD_FORMAT', 'Boolean expected', p);
         }
         return v;
       });
@@ -299,8 +299,8 @@ export class RelayClient {
 }
 
 /**
- * Prüft eine erhaltene Receipt gegen das lokal gesendete Event (Schritte 3 und 5
- * aus Abschnitt 4) und liefert das validierte Ergebnis zurück.
+ * Checks a received receipt against the locally sent event (steps 3 and 5
+ * of section 4) and returns the validated result.
  */
 export async function validatePostReceipt(
   crypto: CryptoPort,
@@ -312,7 +312,7 @@ export async function validatePostReceipt(
   if (receipt.eventHash !== eh) {
     return err(
       'DIVERGENCE',
-      'Quittungs-eventHash stimmt nicht mit dem gesendeten Event überein',
+      'Receipt eventHash does not match the sent event',
       '$.receipt.eventHash',
     );
   }
@@ -321,7 +321,7 @@ export async function validatePostReceipt(
   if (!okSig) {
     return err(
       'DIVERGENCE',
-      'Quittungssignatur konnte nicht gegen den gepinnten Relay-Schlüssel geprüft werden',
+      'Receipt signature could not be verified against the pinned relay key',
       '$.receipt.signature',
     );
   }

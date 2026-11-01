@@ -36,16 +36,16 @@ async function buildAndSend(
   type: SignedEvent['type'],
 ): Promise<ActionResult> {
   if (!ctx.signingKey) {
-    return err('SIGNING', 'Kein entsperrter Schlüssel vorhanden', '$.action.key');
+    return err('SIGNING', 'No unlocked key available', '$.action.key');
   }
   if (ctx.verifier.isBroken) {
-    return preconditionFail('Kette ist gebrochen, Aktionen gesperrt', '$.action.verifier');
+    return preconditionFail('Chain is broken, actions blocked', '$.action.verifier');
   }
   if (ctx.readOnly) {
-    return err('READ_ONLY', 'Relay akzeptiert derzeit keine Schreibvorgänge', '$.action');
+    return err('READ_ONLY', 'Relay currently accepts no writes', '$.action');
   }
   if (ctx.transportError) {
-    return preconditionFail('Netzwerkfehler, Aktionen gesperrt', '$.action.network');
+    return preconditionFail('Network error, actions blocked', '$.action.network');
   }
   const tipRes = await ctx.client.signerTip(ctx.ownPubkey);
   if (!tipRes.ok) {
@@ -63,7 +63,7 @@ async function buildAndSend(
   try {
     event = await signEventWithKey(ctx.crypto, ctx.signingKey, unsigned);
   } catch {
-    return err('SIGNING', 'Signierung fehlgeschlagen', '$.event.signature');
+    return err('SIGNING', 'Signing failed', '$.event.signature');
   }
   const post = await ctx.client.postEvent(event);
   if (!post.ok) {
@@ -88,15 +88,15 @@ export async function consentDeal(
   const entries = ctx.verifier.getEntries();
   const deal = findDealForConsent(entries, dealId);
   if (!deal) {
-    return preconditionFail('Deal nicht in der verifizierten Kette gefunden', '$.action.deal');
+    return preconditionFail('Deal not found in the verified chain', '$.action.deal');
   }
   if (deal.seller !== ctx.ownPubkey) {
-    return preconditionFail('Nur der Verkäufer kann zustimmen', '$.action.role');
+    return preconditionFail('Only the seller can consent', '$.action.role');
   }
   const view = deriveDeals(entries).get(dealId);
-  const state = view ? view.state : 'unbekannt';
-  if (state !== 'angelegt') {
-    return preconditionFail(`Zustand "${state}" erlaubt kein Zustimmen`, '$.action.state');
+  const state = view ? view.state : 'unknown';
+  if (state !== 'created') {
+    return preconditionFail(`State "${state}" does not allow consent`, '$.action.state');
   }
   const body = consentBodyOfDeal(deal);
   const sigRes = await makeAttestation(ctx, 'deal-consent', body);
@@ -120,7 +120,7 @@ export async function castVote(
   const cases = deriveOpenJuryCases(entries, ctx.ownPubkey);
   const openCase = cases.find((c) => c.deal_id === dealId && !c.voted);
   if (!openCase) {
-    return preconditionFail('Kein offener, unabgestimmter Jury-Fall', '$.action.jury');
+    return preconditionFail('No open jury case without a vote', '$.action.jury');
   }
   const body: Record<string, unknown> = {
     deal_id: dealId,
@@ -148,16 +148,16 @@ async function makeAttestation(
   body: Record<string, unknown>,
 ): Promise<Result<string>> {
   if (!ctx.signingKey) {
-    return err('SIGNING', 'Kein entsperrter Schlüssel', '$.attestation.key');
+    return err('SIGNING', 'No unlocked key', '$.attestation.key');
   }
   try {
     const sig = await signAttestationWithKey(ctx.crypto, ctx.signingKey, kind, body);
     const verified = await verifyAttestation(ctx.crypto, ctx.ownPubkey, kind, body, sig);
     if (!verified) {
-      return err('SIGNING', 'Attestation selbst nicht verifizierbar', '$.attestation.verify');
+      return err('SIGNING', 'Attestation not self-verifiable', '$.attestation.verify');
     }
     return ok(sig);
   } catch {
-    return err('SIGNING', 'Attestation fehlgeschlagen', '$.attestation');
+    return err('SIGNING', 'Attestation failed', '$.attestation');
   }
 }

@@ -16,36 +16,36 @@ import { browserClock, browserCrypto, browserRandom, browserStorage } from '../b
 export function render(root: HTMLElement, deps: Deps): () => void {
   root.replaceChildren();
   const h = el('h2');
-  text(h, 'Identität');
+  text(h, 'Identity');
   root.append(h);
   const msg = liveRegion();
   root.append(msg);
 
   const create = el('fieldset');
   const cl = el('legend');
-  text(cl, 'Neuen Schlüssel erzeugen');
+  text(cl, 'Create new key');
   create.append(cl);
   const p1l = el('label');
   p1l.htmlFor = 'pw1';
-  text(p1l, `Passwort (min. ${MIN_PASSWORD_LENGTH} Zeichen)`);
+  text(p1l, `Password (min. ${MIN_PASSWORD_LENGTH} characters)`);
   const p1 = el('input');
   p1.id = 'pw1';
   p1.type = 'password';
   p1.autocomplete = 'new-password';
   const p2l = el('label');
   p2l.htmlFor = 'pw2';
-  text(p2l, 'Passwort wiederholen');
+  text(p2l, 'Repeat password');
   const p2 = el('input');
   p2.id = 'pw2';
   p2.type = 'password';
   p2.autocomplete = 'new-password';
   const btnCreate = el('button');
-  text(btnCreate, 'Schlüssel erzeugen');
+  text(btnCreate, 'Create key');
   create.append(p1l, p1, p2l, p2, btnCreate);
   root.append(create);
   btnCreate.addEventListener('click', () => {
     if (p1.value !== p2.value) {
-      text(msg, 'Passwörter stimmen nicht überein.');
+      text(msg, 'Passwords do not match.');
       return;
     }
     void (async () => {
@@ -64,30 +64,30 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         });
         p1.value = '';
         p2.value = '';
-        text(msg, `Schlüssel erzeugt: ${shortPubkey(r.value.publicKey)}`);
+        text(msg, `Key created: ${shortPubkey(r.value.publicKey)}`);
       } catch {
-        text(msg, 'Schlüsselerzeugung fehlgeschlagen.');
+        text(msg, 'Key creation failed.');
       }
     })();
   });
 
   const use = el('fieldset');
   const ul = el('legend');
-  text(ul, 'Entsperren / Sperren');
+  text(ul, 'Unlock / Lock');
   use.append(ul);
   const unl = el('label');
   unl.htmlFor = 'unlock-pw';
-  text(unl, 'Passwort');
+  text(unl, 'Password');
   const unp = el('input');
   unp.id = 'unlock-pw';
   unp.type = 'password';
   unp.autocomplete = 'current-password';
   const btnUnlock = el('button');
-  text(btnUnlock, 'Entsperren');
+  text(btnUnlock, 'Unlock');
   const btnLock = el('button');
-  text(btnLock, 'Sperren');
+  text(btnLock, 'Lock');
   const btnForget = el('button');
-  text(btnForget, 'Vault löschen');
+  text(btnForget, 'Delete vault');
   use.append(unl, unp, btnUnlock, btnLock, btnForget);
   root.append(use);
   btnUnlock.addEventListener('click', () => {
@@ -98,7 +98,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         return r.ok ? r.value : null;
       })();
     if (!loaded) {
-      text(msg, 'Kein Vault gefunden.');
+      text(msg, 'No vault found.');
       return;
     }
     void (async () => {
@@ -116,34 +116,34 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         signingKey: r.value.key,
       });
       unp.value = '';
-      text(msg, 'Schlüssel entsperrt (Autosperre nach 10 Minuten Inaktivität).');
+      text(msg, 'Key unlocked (auto-lock after 10 minutes of inactivity).');
       deps.resetIdleTimer();
     })();
   });
   btnLock.addEventListener('click', () => {
     deps.store.set({ unlocked: false, signingKey: null });
-    text(msg, 'Schlüssel gesperrt.');
+    text(msg, 'Key locked.');
   });
   btnForget.addEventListener('click', () => {
     clearVault(browserStorage);
     deps.store.set({ vault: null, ownPubkey: null, unlocked: false, signingKey: null });
-    text(msg, 'Vault gelöscht.');
+    text(msg, 'Vault deleted.');
   });
 
   const io = el('fieldset');
   const iol = el('legend');
-  text(iol, 'Vault-Datei');
+  text(iol, 'Vault file');
   io.append(iol);
   const btnExport = el('button');
-  text(btnExport, 'Exportieren');
+  text(btnExport, 'Export');
   const btnImport = el('button');
-  text(btnImport, 'Importieren');
+  text(btnImport, 'Import');
   io.append(btnExport, btnImport);
   root.append(io);
   btnExport.addEventListener('click', () => {
     const v = deps.store.get().vault;
     if (!v) {
-      text(msg, 'Kein Vault zum Exportieren.');
+      text(msg, 'No vault to export.');
       return;
     }
     deps.saveFile('skillx-vault.json', exportFile(v));
@@ -166,14 +166,14 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         signingKey: null,
       });
       saveVault(browserStorage, { publicKey: pub, file: r.value });
-      text(msg, 'Vault importiert. Bitte entsperren.');
+      text(msg, 'Vault imported. Please unlock.');
     })();
   });
 
   const pkWrap = el('p');
   const pkSpan = el('code');
   const btnCopy = el('button');
-  text(btnCopy, 'Pubkey kopieren');
+  text(btnCopy, 'Copy pubkey');
   pkWrap.append(document.createTextNode('Pubkey: '), pkSpan, ' ', btnCopy);
   root.append(pkWrap);
   btnCopy.addEventListener('click', () => {
@@ -187,17 +187,17 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   root.append(statusP);
 
   const unsubscribe = deps.store.subscribeNow((s) => {
-    text(pkSpan, s.ownPubkey ?? 'kein');
+    text(pkSpan, s.ownPubkey ?? 'none');
     btnCopy.disabled = s.ownPubkey === null;
     btnExport.disabled = s.vault === null;
     const entries = s.verifier ? s.verifier.getEntries() : [];
-    let ks = 'unbekannt';
+    let ks = 'unknown';
     if (s.ownPubkey && s.verifier) {
       ks = deps.keyStatusOf(s.ownPubkey, entries);
     }
     text(
       statusP,
-      `Schlüsselstatus: ${ks}; entsperrt: ${s.unlocked ? 'ja' : 'nein'} (Speicherplatz: ${VAULT_STORAGE_KEY})`,
+      `Key status: ${ks}; unlocked: ${s.unlocked ? 'yes' : 'no'} (storage: ${VAULT_STORAGE_KEY})`,
     );
   });
 

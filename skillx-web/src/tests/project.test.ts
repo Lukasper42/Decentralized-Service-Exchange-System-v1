@@ -37,7 +37,7 @@ function entry(seq: number, type: EventType, payload: Record<string, unknown>): 
   };
 }
 
-test('Deal-Zustandsmaschine', () => {
+test('deal state machine', () => {
   const deals = deriveDeals([
     entry(1, 'DealCreated', {
       deal_id: 'd',
@@ -51,7 +51,7 @@ test('Deal-Zustandsmaschine', () => {
     entry(3, 'DeliverableSubmitted', { deal_id: 'd', by: B, artifact_hash: H64 }),
     entry(4, 'DealAccepted', { deal_id: 'd', by: B }),
   ]);
-  assert.equal(deals.get('d')?.state, 'akzeptiert');
+  assert.equal(deals.get('d')?.state, 'accepted');
   assert.equal(deals.get('d')?.amount, 10);
   assert.equal(deals.get('d')?.seller, B);
 
@@ -66,10 +66,10 @@ test('Deal-Zustandsmaschine', () => {
     }),
     entry(2, 'DealExpired', { deal_id: 'd' }),
   ]);
-  assert.equal(expired.get('d')?.state, 'abgelaufen');
+  assert.equal(expired.get('d')?.state, 'expired');
 });
 
-test('DealCreated: Betrag außerhalb AMOUNT_MIN..AMOUNT_MAX wird verworfen', () => {
+test('DealCreated: amount outside AMOUNT_MIN..AMOUNT_MAX is discarded', () => {
   const amountMax = Math.floor(Number.MAX_SAFE_INTEGER / 10000);
   const derive = (amount: number) =>
     deriveDeals([
@@ -89,7 +89,7 @@ test('DealCreated: Betrag außerhalb AMOUNT_MIN..AMOUNT_MAX wird verworfen', () 
   assert.equal(derive(amountMax).get('d')?.amount, amountMax);
 });
 
-test('Konto-Summen inkl. Reputation', () => {
+test('account totals incl. reputation', () => {
   const t = deriveAccountTotals(
     [
       entry(1, 'CurrencyIssued', { recipient: A, amount: 100 }),
@@ -103,15 +103,15 @@ test('Konto-Summen inkl. Reputation', () => {
     ],
     A,
   );
-  assert.equal(t.amounts.erhalten_ausgegeben, 100);
-  assert.equal(t.amounts.erhalten_treasury, 5);
-  assert.equal(t.amounts.eingezahlt_escrow, 40);
-  assert.equal(t.amounts.erhalten_escrow, 40);
-  assert.equal(t.amounts.berufungsgebuehren, 3);
+  assert.equal(t.amounts.received_issued, 100);
+  assert.equal(t.amounts.received_treasury, 5);
+  assert.equal(t.amounts.deposited_escrow, 40);
+  assert.equal(t.amounts.received_escrow, 40);
+  assert.equal(t.amounts.appeal_fees, 3);
   assert.equal(t.reputation, 0);
 });
 
-test('Offene Jury-Fälle inkl. JurorReplaced und DisputeResolved', () => {
+test('open jury cases incl. JurorReplaced and DisputeResolved', () => {
   const cases = deriveOpenJuryCases(
     [
       entry(1, 'JuryAssigned', { deal_id: 'd', jurors: [J1, J2], appeal_round: 0 }),
@@ -162,7 +162,7 @@ test('Offene Jury-Fälle inkl. JurorReplaced und DisputeResolved', () => {
   assert.equal(removed.length, 0);
 });
 
-test('Schlüsselstatus aktiv / rotiert / unbekannt', () => {
+test('key status active / rotated / unknown', () => {
   const entries = [
     entry(1, 'AccountCreated', { pubkey: A }),
     entry(2, 'AccountCreated', { pubkey: B }),
@@ -174,7 +174,7 @@ test('Schlüsselstatus aktiv / rotiert / unbekannt', () => {
       sig: 'z',
     }),
   ];
-  assert.equal(deriveKeyStatus(entries, A), 'aktiv');
-  assert.equal(deriveKeyStatus(entries, B), 'rotiert');
-  assert.equal(deriveKeyStatus(entries, J1), 'unbekannt');
+  assert.equal(deriveKeyStatus(entries, A), 'active');
+  assert.equal(deriveKeyStatus(entries, B), 'rotated');
+  assert.equal(deriveKeyStatus(entries, J1), 'unknown');
 });

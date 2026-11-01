@@ -1,23 +1,23 @@
 import type { ApiError, ErrorCode } from './types.js';
 
-export function formatAmount(n: number | 'Überlauf'): string {
-  if (n === 'Überlauf') {
-    return 'Überlauf';
+export function formatAmount(n: number | 'overflow'): string {
+  if (n === 'overflow') {
+    return 'overflow';
   }
   const neg = n < 0;
   const abs = Math.abs(n);
   const s = String(abs).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  return (neg ? '-' : '') + s + ' Einheiten';
+  return (neg ? '-' : '') + s + ' units';
 }
 
 export function formatIso(iso: string): string {
-  // ISO-String mit fester Breite -> direkt in lesbare Form umformen.
+  // Fixed-width ISO string -> convert directly into readable form.
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/.exec(iso);
   if (!m) {
     return iso;
   }
   const [, y, mo, d, h, mi, s] = m;
-  return `${d}.${mo}.${y} ${h}:${mi}:${s} UTC`;
+  return `${y}-${mo}-${d} ${h}:${mi}:${s} UTC`;
 }
 
 export function shortPubkey(pubkey: string): string {
@@ -87,7 +87,7 @@ export function asErrorCode(s: string): ErrorCode {
 
 export function bundleLookupMessage(code: string): string {
   if (code === 'NOT_FOUND') {
-    return 'Empfänger hat noch kein Schlüsselbündel veröffentlicht (oder die Postfach-URL ist eine andere).';
+    return 'Recipient has not published a key bundle yet (or the mailbox URL is a different one).';
   }
-  return `Empfänger-Schlüssel: ${code}`;
+  return `Recipient key: ${code}`;
 }

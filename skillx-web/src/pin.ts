@@ -29,7 +29,7 @@ export function loadPin(storage: StoragePort): Pin | null {
       return { relayPubkey: p['relayPubkey'], length: p['length'], receiptHash: p['receiptHash'] };
     }
   } catch {
-    /* ungültig: wie kein Pin behandeln */
+    /* invalid: treat as no pin */
   }
   return null;
 }
@@ -43,8 +43,8 @@ function divergence(message: string): ApiError {
 }
 
 /**
- * Erkennt Rollback/Fork des Relays gegenüber dem zuletzt gesehenen, verifizierten Stand
- * (gepinnt im lokalen Speicher) und aktualisiert den Pin bei Fortschritt.
+ * Detects rollback/fork of the relay compared to the last seen, verified state
+ * (pinned in local storage) and updates the pin on progress.
  */
 export async function checkAndUpdatePin(
   crypto: CryptoPort,
@@ -55,11 +55,11 @@ export async function checkAndUpdatePin(
   const pin = loadPin(storage);
   if (pin !== null && pin.relayPubkey === relayPubkey) {
     if (entries.length < pin.length) {
-      return divergence('Relay zeigt einen älteren Stand als zuletzt gesehen (Rollback?)');
+      return divergence('Relay shows an older state than last seen (rollback?)');
     }
     const pinned = entries[pin.length - 1];
     if (!pinned || (await receiptHash(crypto, pinned.receipt)) !== pin.receiptHash) {
-      return divergence('Kette weicht vom zuletzt gesehenen Stand ab (Fork?)');
+      return divergence('Chain differs from the last seen state (fork?)');
     }
   }
   const last = entries[entries.length - 1];

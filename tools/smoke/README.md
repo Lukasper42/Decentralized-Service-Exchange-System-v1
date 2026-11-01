@@ -1,24 +1,24 @@
-# Rauchtests
+# Smoke tests
 
-Browser- und Prozess-Tests gegen den echten Relay (Speicher-Modus), die echte Mailbox und die gebaute Web-UI. Sie ergänzen die
-Unit-Tests und fangen Fehler an den Nahtstellen (CORS, Aufbau der Ansichten, Aktivierung von Endpoints).
+Browser and process tests against the real relay (memory mode), the real mailbox and the built web UI. They complement the
+unit tests and catch errors at the seams (CORS, view construction, endpoint activation).
 
-Voraussetzungen (im Repo-Wurzelordner):
+Prerequisites (in the repo root folder):
 
-    npm run build                                  # baut Ledger, Web und Mailbox (Pakete vorher einzeln installieren)
+    npm run build                                  # builds ledger, web and mailbox (install the packages individually first)
     npm i --no-save playwright && npx playwright install chromium
 
-Freie Ports: 8080 (Web-UI), 3000 (Relay), 8787 (Mailbox), 9911 (Test-Senke). Starten:
+Free ports: 8080 (web UI), 3000 (relay), 8787 (mailbox), 9911 (test sink). Run:
 
-    npm run smoke            # alle vier nacheinander
-    node tools/smoke/ui.mjs  # einzeln
+    npm run smoke            # all four one after another
+    node tools/smoke/ui.mjs  # individually
 
-| Skript | Prüft |
+| Script | Checks |
 | --- | --- |
-| ui.mjs | Schlüssel erzeugen, Genesis, Sync und Kettenprüfung, Explorer, Entsperren, Deals, consentDeal, Rollback-Erkennung, Fehlerfälle |
-| messages.mjs | Ende-zu-Ende-Nachrichten über zwei Browser-Profile und die Mailbox |
-| jury.mjs | Streitfall mit 3 Juroren, castVote in der UI, Auflösung (Test-Genesis mit Jury-Schwellen 0, nur für den Test) |
-| reports.mjs | POST /v1/reports gegen den echten Relay: 404 ohne Konfiguration, 201/200, Parallelität, Neustart, beschädigte Outbox, Wiederzustellung |
+| ui.mjs | Create key, genesis, sync and chain verification, explorer, unlock, deals, consentDeal, rollback detection, error cases |
+| messages.mjs | End-to-end messages across two browser profiles and the mailbox |
+| jury.mjs | Dispute with 3 jurors, castVote in the UI, resolution (test genesis with jury thresholds 0, for the test only) |
+| reports.mjs | POST /v1/reports against the real relay: 404 without configuration, 201/200, concurrency, restart, corrupted outbox, redelivery |
 
-Ausgabe: je Prüfpunkt `OK` oder `FAIL`; Exitcode 1, sobald ein Punkt fehlschlägt. Arbeitsdateien liegen in einem Temp-Ordner.
-Grenzen: nur Chromium, Speicher-Modus des Relays, Jury nicht mit der echten Beta-Policy.
+Output: `OK` or `FAIL` per check; exit code 1 as soon as a check fails. Working files live in a temp folder.
+Limits: Chromium only, relay memory mode, jury not with the real beta policy.

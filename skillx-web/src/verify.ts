@@ -31,7 +31,7 @@ function failure(code: ApiError['code'], message: string, path: string): VerifyR
 }
 
 function compareIso(a: string, b: string): number {
-  // Feste Breite -> lexikographische Ordnung entspricht der Zeitordnung.
+  // Fixed width -> lexicographic order matches time order.
   if (a < b) {
     return -1;
   }
@@ -85,7 +85,7 @@ export class ChainVerifier {
     return this.entries;
   }
 
-  /** Initialisiert keyId des ersten Bereichs (async, da Hash berechnet wird). */
+  /** Initializes keyId of the first range (async, since a hash is computed). */
   async init(): Promise<void> {
     const first = this.ranges[0];
     if (first) {
@@ -117,17 +117,17 @@ export class ChainVerifier {
     const { event, receipt } = entry;
     const p = '$';
 
-    // 1. Sequenz
+    // 1. Sequence
     const expectedSeq = this.entries.length + 1;
     if (receipt.sequence !== expectedSeq) {
       return failure(
         'RECEIPT_SEQUENCE',
-        `Erwartete Sequenz ${expectedSeq}, erhalten ${receipt.sequence}`,
+        `Expected sequence ${expectedSeq}, got ${receipt.sequence}`,
         `${p}.receipt.sequence`,
       );
     }
 
-    // 2. Event-Signatur
+    // 2. Event signature
     let eventSigOk = false;
     try {
       eventSigOk = await verifyEvent(this.port, event);
@@ -135,41 +135,41 @@ export class ChainVerifier {
       eventSigOk = false;
     }
     if (!eventSigOk) {
-      return failure('SIGNATURE', 'Event-Signatur ist ungültig', `${p}.event.signature`);
+      return failure('SIGNATURE', 'Event signature is invalid', `${p}.event.signature`);
     }
 
-    // 3. Event-Hash
+    // 3. Event hash
     const eh = await eventHash(this.port, event);
     if (eh !== receipt.eventHash) {
       return failure(
         'RECEIPT_EVENT_HASH',
-        'receipt.eventHash stimmt nicht mit dem Event überein',
+        'receipt.eventHash does not match the event',
         `${p}.receipt.eventHash`,
       );
     }
 
-    // 4. Receipt-Verkettung
+    // 4. Receipt linking
     if (receipt.previousReceiptHash !== this.lastReceiptHash) {
       return failure(
         'RECEIPT_LINK',
-        'previousReceiptHash passt nicht zum vorherigen Eintrag',
+        'previousReceiptHash does not match the previous entry',
         `${p}.receipt.previousReceiptHash`,
       );
     }
 
-    // 5. Schlüsselbereich + Receipt-Signatur
+    // 5. Key range + receipt signature
     const range = this.rangeFor(receipt.sequence);
     if (!range) {
       return failure(
         'KEY_UNKNOWN',
-        `Kein Schlüsselbereich deckt Sequenz ${receipt.sequence} ab`,
+        `No key range covers sequence ${receipt.sequence}`,
         `${p}.receipt.keyId`,
       );
     }
     if (receipt.keyId !== range.keyId) {
       return failure(
         'KEY_UNKNOWN',
-        'receipt.keyId passt nicht zum gültigen Schlüsselbereich',
+        'receipt.keyId does not match the valid key range',
         `${p}.receipt.keyId`,
       );
     }
@@ -182,40 +182,40 @@ export class ChainVerifier {
     if (!receiptOk) {
       return failure(
         'RECEIPT_SIGNATURE',
-        'Receipt-Signatur ist für den Relay-Schlüssel ungültig',
+        'Receipt signature is invalid for the relay key',
         `${p}.receipt.signature`,
       );
     }
 
-    // 6. Per-Signer-Kette
+    // 6. Per-signer chain
     const prevExpected = this.signerTip.get(event.signer) ?? null;
     if (event.prevHash !== prevExpected) {
       return failure(
         'CHAIN_LINK',
-        'event.prevHash entspricht nicht dem letzten Event dieses Signers',
+        'event.prevHash does not match the last event of this signer',
         `${p}.event.prevHash`,
       );
     }
 
-    // 7. monotones acceptedAt
+    // 7. monotonic acceptedAt
     const lastEntry = this.entries[this.entries.length - 1];
     if (lastEntry) {
       if (compareIso(receipt.acceptedAt, lastEntry.receipt.acceptedAt) < 0) {
         return failure(
           'RECEIPT_SEQUENCE',
-          'receipt.acceptedAt fällt unter das vorherige acceptedAt zurück',
+          'receipt.acceptedAt falls below the previous acceptedAt',
           `${p}.receipt.acceptedAt`,
         );
       }
     }
 
-    // 8. Relay-Schlüsselwechsel prüfen, bevor etwas übernommen wird
+    // 8. Check relay key rotation before anything is accepted
     const rotation = await this.checkRotation(event);
     if (!rotation.ok) {
       return { ok: false, error: rotation.error };
     }
 
-    // Alles geprüft: übernehmen
+    // Everything verified: accept
     this.entries.push(entry);
     this.lastReceiptHash = await receiptHash(this.port, receipt);
     this.signerTip.set(event.signer, eh);
@@ -244,23 +244,23 @@ export class ChainVerifier {
     const vfs = Object.hasOwn(payload, 'valid_from_sequence') ? payload['valid_from_sequence'] : undefined;
     const kid = Object.hasOwn(payload, 'key_id') ? payload['key_id'] : undefined;
     if (typeof newPubkey !== 'string' || typeof vfs !== 'number' || typeof kid !== 'string') {
-      return bad('RelayKeyRotated-Payload unvollständig', '$.event.payload');
+      return bad('RelayKeyRotated payload incomplete', '$.event.payload');
     }
     if (!Number.isSafeInteger(vfs)) {
-      return bad('valid_from_sequence ist keine sichere Ganzzahl', '$.event.payload.valid_from_sequence');
+      return bad('valid_from_sequence is not a safe integer', '$.event.payload.valid_from_sequence');
     }
     const current = this.ranges[this.ranges.length - 1];
     if (!current || vfs <= current.validFrom) {
-      return bad('RelayKeyRotated öffnet keinen gültigen neuen Bereich', '$.event.payload.valid_from_sequence');
+      return bad('RelayKeyRotated does not open a valid new range', '$.event.payload.valid_from_sequence');
     }
     const computedKeyId = await sha256HexUtf8(this.port, newPubkey);
     if (computedKeyId !== kid) {
-      return bad('key_id stimmt nicht mit sha256(pubkey) überein', '$.event.payload.key_id');
+      return bad('key_id does not match sha256(pubkey)', '$.event.payload.key_id');
     }
     return { ok: true, range: { pubkey: newPubkey, keyId: kid, validFrom: vfs, validTo: null } };
   }
 
-  /** Prüft einen Checkpoint gegen die lokal verifizierte Kette. */
+  /** Checks a checkpoint against the locally verified chain. */
   async verifyCheckpoint(cp: SignedCheckpoint): Promise<VerifyResult> {
     const body = {
       sequence: cp.sequence,
@@ -271,7 +271,7 @@ export class ChainVerifier {
     if (!range) {
       return failure(
         'KEY_UNKNOWN',
-        'Checkpoint-Key_id entspricht keinem bekannten Schlüsselbereich',
+        'Checkpoint key_id does not match any known key range',
         '$.checkpoint.key_id',
       );
     }
@@ -285,7 +285,7 @@ export class ChainVerifier {
     if (!sigOk) {
       return failure(
         'ATTESTATION',
-        'Checkpoint-Attestation ist ungültig',
+        'Checkpoint attestation is invalid',
         '$.checkpoint.signature',
       );
     }
@@ -294,14 +294,14 @@ export class ChainVerifier {
       if (local === null) {
         return failure(
           'RECEIPT_SEQUENCE',
-          'Lokale Kette hat keinen Eintrag für diese Sequenz',
+          'Local chain has no entry for this sequence',
           '$.checkpoint.sequence',
         );
       }
       if (local !== cp.receipt_hash) {
         return failure(
           'DIVERGENCE',
-          'Checkpoint-receipt_hash weicht von der lokal berechneten Kette ab',
+          'Checkpoint receipt_hash differs from the locally computed chain',
           '$.checkpoint.receipt_hash',
         );
       }
@@ -309,7 +309,7 @@ export class ChainVerifier {
     return { ok: true };
   }
 
-  /** Lokaler Receipt-Hash an einer gegebenen Sequenz (1-basiert). */
+  /** Local receipt hash at a given sequence (1-based). */
   async localReceiptHash(sequence: number): Promise<Hash | null> {
     const idx = sequence - 1;
     if (idx < 0 || idx >= this.entries.length) {

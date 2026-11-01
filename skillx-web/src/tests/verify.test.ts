@@ -71,14 +71,14 @@ async function expectCode(
   }
 }
 
-test('gültige Kette mit 3 selbst erzeugten Einträgen', async () => {
+test('valid chain with 3 self-generated entries', async () => {
   const ctx = await makeChain(3);
   await appendGood(ctx, 3);
   assert.equal(ctx.verifier.length, 3);
   assert.ok(!ctx.verifier.isBroken);
 });
 
-test('RECEIPT_SEQUENCE: doppelte Sequenz', async () => {
+test('RECEIPT_SEQUENCE: duplicate sequence', async () => {
   await expectCode(async (ctx) => {
     const e = ctx.entries[1];
     assert.ok(e);
@@ -86,7 +86,7 @@ test('RECEIPT_SEQUENCE: doppelte Sequenz', async () => {
   }, 'RECEIPT_SEQUENCE');
 });
 
-test('SIGNATURE: ungültige Event-Signatur', async () => {
+test('SIGNATURE: invalid event signature', async () => {
   await expectCode(async (ctx) => {
     const e = structuredClone(ctx.entries[2]);
     assert.ok(e);
@@ -95,7 +95,7 @@ test('SIGNATURE: ungültige Event-Signatur', async () => {
   }, 'SIGNATURE');
 });
 
-test('RECEIPT_EVENT_HASH: Hash stimmt nicht', async () => {
+test('RECEIPT_EVENT_HASH: hash mismatch', async () => {
   await expectCode(async (ctx) => {
     const e = structuredClone(ctx.entries[2]);
     assert.ok(e);
@@ -104,7 +104,7 @@ test('RECEIPT_EVENT_HASH: Hash stimmt nicht', async () => {
   }, 'RECEIPT_EVENT_HASH');
 });
 
-test('RECEIPT_LINK: Verkettung gebrochen', async () => {
+test('RECEIPT_LINK: link broken', async () => {
   await expectCode(async (ctx) => {
     const e = structuredClone(ctx.entries[2]);
     assert.ok(e);
@@ -113,7 +113,7 @@ test('RECEIPT_LINK: Verkettung gebrochen', async () => {
   }, 'RECEIPT_LINK');
 });
 
-test('RECEIPT_SIGNATURE: Quittung von fremdem Schlüssel', async () => {
+test('RECEIPT_SIGNATURE: receipt from a foreign key', async () => {
   await expectCode(async (ctx) => {
     const e = structuredClone(ctx.entries[2]);
     assert.ok(e);
@@ -130,7 +130,7 @@ test('RECEIPT_SIGNATURE: Quittung von fremdem Schlüssel', async () => {
   }, 'RECEIPT_SIGNATURE');
 });
 
-test('KEY_UNKNOWN: receipt.keyId passt nicht zum Relay', async () => {
+test('KEY_UNKNOWN: receipt.keyId does not match the relay', async () => {
   await expectCode(async (ctx) => {
     const e = structuredClone(ctx.entries[2]);
     assert.ok(e);
@@ -140,7 +140,7 @@ test('KEY_UNKNOWN: receipt.keyId passt nicht zum Relay', async () => {
   }, 'KEY_UNKNOWN');
 });
 
-test('CHAIN_LINK: prevHash ignoriert letztes Event des Signers', async () => {
+test('CHAIN_LINK: prevHash ignores the last event of the signer', async () => {
   const ctx = await makeChain(2);
   await appendGood(ctx, 2);
   const last = ctx.entries[1];
@@ -168,7 +168,7 @@ test('CHAIN_LINK: prevHash ignoriert letztes Event des Signers', async () => {
   }
 });
 
-test('Verifier bleibt nach Fehler broken (gleicher Fehler erneut)', async () => {
+test('Verifier stays broken after an error (same error again)', async () => {
   const ctx = await makeChain(2);
   await appendGood(ctx, 2);
   const dup = structuredClone(ctx.entries[1]);
@@ -183,7 +183,7 @@ test('Verifier bleibt nach Fehler broken (gleicher Fehler erneut)', async () => 
   assert.ok(ctx.verifier.isBroken);
 });
 
-test('Checkpoint passend und abweichend', async () => {
+test('Checkpoint matching and deviating', async () => {
   const ctx = await makeChain(2);
   await appendGood(ctx, 2);
   const second = ctx.entries[1];
@@ -222,7 +222,7 @@ test('Checkpoint passend und abweichend', async () => {
   }
 });
 
-test('RelayKeyRotated erweitert Schlüsselbereiche', async () => {
+test('RelayKeyRotated extends key ranges', async () => {
   const ctx = await makeChain(1);
   await appendGood(ctx, 1);
   const first = ctx.entries[0];
@@ -274,7 +274,7 @@ test('RelayKeyRotated erweitert Schlüsselbereiche', async () => {
   assert.ok(r3.ok);
 });
 
-test('RelayKeyRotated mit unpassendem key_id -> KEY_UNKNOWN', async () => {
+test('RelayKeyRotated with mismatching key_id -> KEY_UNKNOWN', async () => {
   const ctx = await makeChain(1);
   await appendGood(ctx, 1);
   const first = ctx.entries[0];
@@ -307,7 +307,7 @@ test('RelayKeyRotated mit unpassendem key_id -> KEY_UNKNOWN', async () => {
   }
 });
 
-test('Zeitrücklauf des acceptedAt -> RECEIPT_SEQUENCE', async () => {
+test('acceptedAt time regression -> RECEIPT_SEQUENCE', async () => {
   const ctx = await makeChain(2);
   await appendGood(ctx, 1);
   const second = ctx.entries[1];

@@ -26,14 +26,14 @@ export function hasOwn(obj: Record<string, unknown>, key: string): boolean {
 
 export function guardString(value: unknown, path: string): string {
   if (typeof value !== 'string') {
-    fail('FIELD_FORMAT', 'Zeichenkette erwartet', path);
+    fail('FIELD_FORMAT', 'String expected', path);
   }
   return value;
 }
 
 export function guardSafeInt(value: unknown, path: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
-    fail('FIELD_FORMAT', 'Sichere Ganzzahl erwartet', path);
+    fail('FIELD_FORMAT', 'Safe integer expected', path);
   }
   return value;
 }
@@ -41,7 +41,7 @@ export function guardSafeInt(value: unknown, path: string): number {
 export function guardPositiveInt(value: unknown, path: string): number {
   const n = guardSafeInt(value, path);
   if (n < 0) {
-    fail('FIELD_FORMAT', 'Nicht-negative Ganzzahl erwartet', path);
+    fail('FIELD_FORMAT', 'Non-negative integer expected', path);
   }
   return n;
 }
@@ -52,7 +52,7 @@ export const AMOUNT_MAX = Math.floor(Number.MAX_SAFE_INTEGER / 10000);
 export function guardAmount(value: unknown, path: string): number {
   const n = guardSafeInt(value, path);
   if (n < AMOUNT_MIN || n > AMOUNT_MAX) {
-    fail('AMOUNT', 'Betrag außerhalb von AMOUNT_MIN..AMOUNT_MAX', path);
+    fail('AMOUNT', 'Amount outside AMOUNT_MIN..AMOUNT_MAX', path);
   }
   return n;
 }
@@ -62,7 +62,7 @@ const HEX64 = /^[0-9a-f]{64}$/;
 export function guardHash(value: unknown, path: string): string {
   const s = guardString(value, path);
   if (!HEX64.test(s)) {
-    fail('FIELD_FORMAT', '64-stelliges lowercase Hex erwartet', path);
+    fail('FIELD_FORMAT', '64-character lowercase hex expected', path);
   }
   return s;
 }
@@ -72,7 +72,7 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 export function guardIso(value: unknown, path: string): string {
   const s = guardString(value, path);
   if (!ISO_RE.test(s)) {
-    fail('TIMESTAMP', 'Format YYYY-MM-DDTHH:mm:ss.sssZ erwartet', path);
+    fail('TIMESTAMP', 'Format YYYY-MM-DDTHH:mm:ss.sssZ expected', path);
   }
   return s;
 }
@@ -94,7 +94,7 @@ export function guardArray<T>(
   inner: Guard<T>,
 ): T[] {
   if (!Array.isArray(value)) {
-    fail('FIELD_FORMAT', 'Array erwartet', path);
+    fail('FIELD_FORMAT', 'Array expected', path);
   }
   const out: T[] = [];
   for (let i = 0; i < value.length; i++) {
@@ -114,7 +114,7 @@ export function guardLiteral<L extends string>(
       return a;
     }
   }
-  fail('FIELD_FORMAT', `Einer von: ${allowed.join(', ')}`, path);
+  fail('FIELD_FORMAT', `One of: ${allowed.join(', ')}`, path);
 }
 
 export function field<T>(
@@ -124,7 +124,7 @@ export function field<T>(
   guard: Guard<T>,
 ): T {
   if (!hasOwn(obj, key)) {
-    fail('MISSING_FIELD', `Feld "${key}" fehlt`, `${path}.${key}`);
+    fail('MISSING_FIELD', `Field "${key}" is missing`, `${path}.${key}`);
   }
   return guard(obj[key], `${path}.${key}`);
 }
@@ -151,7 +151,7 @@ export function payloadRecord(
 ): Record<string, unknown> {
   return field(obj, 'payload', path, (v, p) => {
     if (!isRecord(v)) {
-      fail('PAYLOAD', 'Payload muss ein Objekt sein', p);
+      fail('PAYLOAD', 'Payload must be an object', p);
     }
     return v;
   });

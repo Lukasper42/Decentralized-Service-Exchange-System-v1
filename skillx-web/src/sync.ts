@@ -16,8 +16,8 @@ function failure(code: 'TRANSPORT' | 'DIVERGENCE', message: string, path: string
 }
 
 /**
- * Lädt alle Einträge vom lokalen Stand + 1 bis `tip` in Seiten und prüft sie.
- * Bricht nach mehr als 1000 Seiten ab.
+ * Loads all entries from the local state + 1 up to `tip` in pages and verifies them.
+ * Aborts after more than 1000 pages.
  */
 export async function syncOnce(
   client: RelayClient,
@@ -44,7 +44,7 @@ export async function syncOnce(
     if (pages > MAX_PAGES) {
       return {
         appended,
-        error: failure('TRANSPORT', 'Zu viele Seiten geladen (>1000)', '$.sync.pages'),
+        error: failure('TRANSPORT', 'Too many pages loaded (>1000)', '$.sync.pages'),
       };
     }
     if (res.value.next === null) {
@@ -53,12 +53,12 @@ export async function syncOnce(
     if (res.value.next <= from) {
       return {
         appended,
-        error: failure('TRANSPORT', 'Pagination kommt nicht voran', '$.sync.next'),
+        error: failure('TRANSPORT', 'Pagination is not advancing', '$.sync.next'),
       };
     }
     from = res.value.next;
   }
-  // Checkpoint-Prüfung nach dem Synchronisieren.
+  // Checkpoint check after synchronizing.
   const cpRes = await client.latestCheckpoint();
   if (cpRes.ok) {
     const cpCheck = await verifier.verifyCheckpoint(cpRes.value);
@@ -71,7 +71,7 @@ export async function syncOnce(
   return { appended, error: null };
 }
 
-/** Startet Polling alle 15 s; gibt eine Rückbau-Funktion zurück. */
+/** Starts polling every 15 s; returns a teardown function. */
 export function startPolling(
   scheduler: SchedulerPort,
   tick: () => void,

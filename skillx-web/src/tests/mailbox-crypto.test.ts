@@ -156,7 +156,7 @@ test('mailbox seal/open roundtrip', async () => {
     from: alice.pubkey,
     edKey: alice.privateKey,
     recipientBundle: bundle,
-    body: 'Hallo Bob'
+    body: 'Hello Bob'
   });
   assert.ok(sealed.ok);
   if (!sealed.ok) return;
@@ -166,7 +166,7 @@ test('mailbox seal/open roundtrip', async () => {
   assert.ok(opened.ok);
   if (!opened.ok) return;
   assert.equal(opened.value.from, alice.pubkey);
-  assert.equal(opened.value.body, 'Hallo Bob');
+  assert.equal(opened.value.body, 'Hello Bob');
   assert.equal(opened.value.sentAt, clock.nowIso());
 });
 

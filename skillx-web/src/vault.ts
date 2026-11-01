@@ -75,7 +75,7 @@ export async function createVault(
 ): Promise<Result<{ vault: Vault; publicKey: string }>> {
   void clock;
   if (password.length < MIN_PASSWORD_LENGTH) {
-    return err('POLICY', `Passwort muss mindestens ${MIN_PASSWORD_LENGTH} Zeichen haben`, '$.vault.password');
+    return err('POLICY', `Password must be at least ${MIN_PASSWORD_LENGTH} characters`, '$.vault.password');
   }
   const pair = await generateKeyPair(crypto);
   const salt = random.bytes(SALT_LEN);
@@ -102,7 +102,7 @@ export async function unlock(
   password: string,
 ): Promise<Result<string>> {
   if (password.length === 0) {
-    return err('SIGNING', 'Passwort fehlt', '$.vault.password');
+    return err('SIGNING', 'Password missing', '$.vault.password');
   }
   let salt: Uint8Array;
   let iv: Uint8Array;
@@ -112,10 +112,10 @@ export async function unlock(
     iv = b64DecodeStrict(vault.file.iv);
     ct = b64DecodeStrict(vault.file.ciphertext);
   } catch {
-    return signingError('Vault-Datei beschädigt');
+    return signingError('Vault file corrupted');
   }
   if (salt.length !== SALT_LEN || iv.length !== IV_LEN) {
-    return signingError('Ungültige Salt-/IV-Länge');
+    return signingError('Invalid salt/IV length');
   }
   try {
     const key = await deriveKey(crypto, password, salt, vault.file.iterations);
@@ -128,13 +128,13 @@ export async function unlock(
     b64DecodeStrict(pkcs8);
     return ok(pkcs8);
   } catch {
-    return signingError('Falsches Passwort oder beschädigte Vault-Datei');
+    return signingError('Wrong password or corrupted vault file');
   }
 }
 
 /**
- * Entsperrt den Vault und liefert einen nicht exportierbaren Signierschlüssel
- * samt aus dem Schlüssel abgeleitetem Public Key (nie dem gespeicherten vertrauen).
+ * Unlocks the vault and returns a non-extractable signing key
+ * together with the public key derived from the key (never trust the stored one).
  */
 export async function unlockSigner(
   crypto: CryptoPort,
@@ -145,7 +145,7 @@ export async function unlockSigner(
     vault.file.iterations < PBKDF2_ITERATIONS ||
     vault.file.iterations > MAX_PBKDF2_ITERATIONS
   ) {
-    return signingError('Iterationsanzahl außerhalb des erlaubten Bereichs');
+    return signingError('Iteration count outside the allowed range');
   }
   const r = await unlock(crypto, vault, password);
   if (!r.ok) {
@@ -154,12 +154,12 @@ export async function unlockSigner(
   try {
     const publicKey = await derivePublicKey(crypto, r.value);
     if (vault.publicKey !== '' && vault.publicKey !== publicKey) {
-      return signingError('Gespeicherter Public Key passt nicht zum Schlüssel im Vault');
+      return signingError('Stored public key does not match the key in the vault');
     }
     const key = await importNonExtractablePrivate(crypto, r.value);
     return ok({ key, publicKey });
   } catch {
-    return signingError('Schlüssel nicht verwendbar');
+    return signingError('Key not usable');
   }
 }
 
@@ -169,39 +169,39 @@ export function exportFile(vault: Vault): string {
 
 export function importFile(text: string): Result<VaultFile> {
   if (text.length > 64 * 1024) {
-    return err('TOO_LARGE', 'Vault-Datei zu groß', '$.vault');
+    return err('TOO_LARGE', 'Vault file too large', '$.vault');
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return err('ENVELOPE', 'Kein gültiges JSON', '$.vault');
+    return err('ENVELOPE', 'Not valid JSON', '$.vault');
   }
   if (!isRecord(parsed)) {
-    return err('ENVELOPE', 'Vault muss ein Objekt sein', '$.vault');
+    return err('ENVELOPE', 'Vault must be an object', '$.vault');
   }
   try {
     const v = field(parsed, 'v', '$', guardPositiveInt);
     if (v !== 1) {
-      return err('VERSION', 'Nur Vault-Version 1 unterstützt', '$.vault.v');
+      return err('VERSION', 'Only vault version 1 supported', '$.vault.v');
     }
     const iterations = field(parsed, 'iterations', '$', guardPositiveInt);
     if (iterations < PBKDF2_ITERATIONS || iterations > MAX_PBKDF2_ITERATIONS) {
-      return err('LIMIT', 'Iterationsanzahl außerhalb des erlaubten Bereichs', '$.vault.iterations');
+      return err('LIMIT', 'Iteration count outside the allowed range', '$.vault.iterations');
     }
     const checkB64 = (name: string, expectedLen: number | null): string => {
       const s = field(parsed, name, '$', guardString);
       if (s.length === 0 || s.length > MAX_B64_FIELD) {
-        throw new GuardError('LIMIT', `Feld "${name}" hat ungültige Länge`, `$.vault.${name}`);
+        throw new GuardError('LIMIT', `Field "${name}" has invalid length`, `$.vault.${name}`);
       }
       let bytes: Uint8Array;
       try {
         bytes = b64DecodeStrict(s);
       } catch {
-        throw new GuardError('FIELD_FORMAT', `Feld "${name}" ist kein striktes Base64`, `$.vault.${name}`);
+        throw new GuardError('FIELD_FORMAT', `Field "${name}" is not strict Base64`, `$.vault.${name}`);
       }
       if (expectedLen !== null && bytes.length !== expectedLen) {
-        throw new GuardError('LIMIT', `Feld "${name}" hat falsche Byte-Länge`, `$.vault.${name}`);
+        throw new GuardError('LIMIT', `Field "${name}" has wrong byte length`, `$.vault.${name}`);
       }
       return s;
     };
@@ -224,22 +224,22 @@ export function saveVault(storage: StoragePort, vault: Vault): void {
 export function loadVault(storage: StoragePort): Result<Vault> {
   const raw = storage.get(VAULT_STORAGE_KEY);
   if (raw === null) {
-    return err('NOT_FOUND', 'Kein Vault gespeichert', '$.vault');
+    return err('NOT_FOUND', 'No vault stored', '$.vault');
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return err('ENVELOPE', 'Gespeicherter Vault ist kein JSON', '$.vault');
+    return err('ENVELOPE', 'Stored vault is not JSON', '$.vault');
   }
   if (!isRecord(parsed)) {
-    return err('ENVELOPE', 'Vault-Mantel ungültig', '$.vault');
+    return err('ENVELOPE', 'Vault envelope invalid', '$.vault');
   }
   try {
     const publicKey = field(parsed, 'publicKey', '$', guardString);
     const fileRaw = field(parsed, 'file', '$', (v, p) => {
       if (!isRecord(v)) {
-        throw new GuardError('ENVELOPE', 'file muss ein Objekt sein', p);
+        throw new GuardError('ENVELOPE', 'file must be an object', p);
       }
       return v;
     });

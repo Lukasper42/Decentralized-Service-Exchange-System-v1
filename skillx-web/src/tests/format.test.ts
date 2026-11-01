@@ -11,34 +11,34 @@ import {
   bundleLookupMessage,
 } from '../format.js';
 
-test('formatAmount: Überlauf bleibt Überlauf', () => {
-  assert.equal(formatAmount('Überlauf'), 'Überlauf');
+test('formatAmount: overflow stays overflow', () => {
+  assert.equal(formatAmount('overflow'), 'overflow');
 });
 
 test('formatAmount: 0', () => {
-  assert.equal(formatAmount(0), '0 Einheiten');
+  assert.equal(formatAmount(0), '0 units');
 });
 
 test('formatAmount: 999', () => {
-  assert.equal(formatAmount(999), '999 Einheiten');
+  assert.equal(formatAmount(999), '999 units');
 });
 
 test('formatAmount: 1000', () => {
-  assert.equal(formatAmount(1000), '1 000 Einheiten');
+  assert.equal(formatAmount(1000), '1 000 units');
 });
 
 test('formatAmount: 1234567', () => {
-  assert.equal(formatAmount(1234567), '1 234 567 Einheiten');
+  assert.equal(formatAmount(1234567), '1 234 567 units');
 });
 
-test('formatAmount: negative ganze Zahl', () => {
-  assert.equal(formatAmount(-1234), '-1 234 Einheiten');
+test('formatAmount: negative integer', () => {
+  assert.equal(formatAmount(-1234), '-1 234 units');
 });
 
-test('formatAmount: 1_000_000_000 behält die Ziffern', () => {
+test('formatAmount: 1_000_000_000 keeps the digits', () => {
   const n = 1_000_000_000;
   const formatted = formatAmount(n);
-  const suffix = ' Einheiten';
+  const suffix = ' units';
 
   assert.equal(formatted.endsWith(suffix), true);
 
@@ -46,10 +46,10 @@ test('formatAmount: 1_000_000_000 behält die Ziffern', () => {
   assert.equal(digits, String(n));
 });
 
-test('formatAmount: Number.MAX_SAFE_INTEGER behält die Ziffern', () => {
+test('formatAmount: Number.MAX_SAFE_INTEGER keeps the digits', () => {
   const n = Number.MAX_SAFE_INTEGER;
   const formatted = formatAmount(n);
-  const suffix = ' Einheiten';
+  const suffix = ' units';
 
   assert.equal(formatted.endsWith(suffix), true);
 
@@ -57,14 +57,14 @@ test('formatAmount: Number.MAX_SAFE_INTEGER behält die Ziffern', () => {
   assert.equal(digits, String(n));
 });
 
-test('formatIso: exaktes ISO-Format wird formatiert', () => {
+test('formatIso: exact ISO format is formatted', () => {
   assert.equal(
     formatIso('2026-03-07T04:05:06.789Z'),
-    '07.03.2026 04:05:06 UTC',
+    '2026-03-07 04:05:06 UTC',
   );
 });
 
-test('formatIso: ungültige oder abweichende Eingaben bleiben unverändert', () => {
+test('formatIso: invalid or deviating inputs stay unchanged', () => {
   const inputs = [
     '2026-03-07',
     '2026-03-07T04:05:06Z',
@@ -78,31 +78,31 @@ test('formatIso: ungültige oder abweichende Eingaben bleiben unverändert', () 
   }
 });
 
-test('shortPubkey: Länge <= 16 bleibt unverändert', () => {
+test('shortPubkey: length <= 16 stays unchanged', () => {
   assert.equal(shortPubkey('abcdefghijklmnop'), 'abcdefghijklmnop');
   assert.equal(shortPubkey('abc'), 'abc');
 });
 
-test('shortPubkey: Länge 17 wird gekürzt', () => {
+test('shortPubkey: length 17 is shortened', () => {
   assert.equal(shortPubkey('abcdefghijklmnopq'), 'abcdefgh…jklmnopq');
 });
 
-test('shortHash: Länge <= 16 bleibt unverändert', () => {
+test('shortHash: length <= 16 stays unchanged', () => {
   assert.equal(shortHash('0123456789abcdef'), '0123456789abcdef');
 });
 
-test('shortHash: Länge 17 wird gekürzt', () => {
+test('shortHash: length 17 is shortened', () => {
   assert.equal(shortHash('0123456789abcdefg'), '0123456789…789abcdefg');
 });
 
-test('formatError: formatiert Code, Nachricht und Pfad', () => {
+test('formatError: formats code, message and path', () => {
   assert.equal(
     formatError({ code: 'STATE', message: 'x', path: '$.a' }),
     '[STATE] x ($.a)',
   );
 });
 
-test('asErrorCode: alle bekannten Codes bleiben identisch', () => {
+test('asErrorCode: all known codes stay identical', () => {
   const codes = [
     'VERSION',
     'ENVELOPE',
@@ -147,7 +147,7 @@ test('asErrorCode: alle bekannten Codes bleiben identisch', () => {
   }
 });
 
-test('asErrorCode: unbekannte Eingaben werden BAD_REQUEST', () => {
+test('asErrorCode: unknown inputs become BAD_REQUEST', () => {
   const unknownInputs = [
     '',
     'unknown',
@@ -162,7 +162,7 @@ test('asErrorCode: unbekannte Eingaben werden BAD_REQUEST', () => {
   }
 });
 
-test('bundleLookupMessage: NOT_FOUND erklärt das fehlende Schlüsselbündel, andere Codes bleiben sichtbar', () => {
-  assert.match(bundleLookupMessage('NOT_FOUND'), /noch kein Schlüsselbündel/);
-  assert.equal(bundleLookupMessage('LIMIT'), 'Empfänger-Schlüssel: LIMIT');
+test('bundleLookupMessage: NOT_FOUND explains the missing key bundle, other codes stay visible', () => {
+  assert.match(bundleLookupMessage('NOT_FOUND'), /not published a key bundle yet/);
+  assert.equal(bundleLookupMessage('LIMIT'), 'Recipient key: LIMIT');
 });

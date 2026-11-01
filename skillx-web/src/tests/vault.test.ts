@@ -81,9 +81,9 @@ async function getCreated(): Promise<CreatedVault> {
   if (createdPromise === null) {
     createdPromise = (async (): Promise<CreatedVault> => {
       const r = await createVault(cryptoPort, random, clock, PASSWORD);
-      assert.ok(r.ok, 'createVault im Test-Setup fehlgeschlagen');
+      assert.ok(r.ok, 'createVault failed in test setup');
       if (!r.ok) {
-        throw new Error('createVault im Test-Setup fehlgeschlagen');
+        throw new Error('createVault failed in test setup');
       }
       return r.value;
     })();
@@ -103,9 +103,9 @@ async function getPkcs8(): Promise<string> {
     pkcs8Promise = (async (): Promise<string> => {
       const vault = await getVault();
       const r = await unlock(cryptoPort, vault, PASSWORD);
-      assert.ok(r.ok, 'unlock im Test-Setup fehlgeschlagen');
+      assert.ok(r.ok, 'unlock failed in test setup');
       if (!r.ok) {
-        throw new Error('unlock im Test-Setup fehlgeschlagen');
+        throw new Error('unlock failed in test setup');
       }
       return r.value;
     })();
@@ -113,7 +113,7 @@ async function getPkcs8(): Promise<string> {
   return pkcs8Promise;
 }
 
-test('createVault: Passwort kürzer als 16 Zeichen -> POLICY', async () => {
+test('createVault: password shorter than 16 characters -> POLICY', async () => {
   const r = await createVault(cryptoPort, random, clock, 'fifteen-chars!!');
   assert.strictEqual(r.ok, false);
   if (r.ok) return;
@@ -121,23 +121,23 @@ test('createVault: Passwort kürzer als 16 Zeichen -> POLICY', async () => {
   assert.strictEqual(r.error.path, '$.vault.password');
 });
 
-test('createVault: Erfolg liefert Vault v1 mit erwarteten Parametern und gültigem Ed25519-Pubkey', async () => {
+test('createVault: success returns vault v1 with expected parameters and valid Ed25519 pubkey', async () => {
   const created = await getCreated();
   const file = created.vault.file;
 
   assert.strictEqual(file.v, 1);
   assert.strictEqual(file.iterations, PBKDF2_ITERATIONS);
 
-  assert.ok(isStrictBase64(file.salt), 'salt muss striktes Base64 sein');
-  assert.ok(isStrictBase64(file.iv), 'iv muss striktes Base64 sein');
-  assert.ok(isStrictBase64(file.ciphertext), 'ciphertext muss striktes Base64 sein');
+  assert.ok(isStrictBase64(file.salt), 'salt must be strict Base64');
+  assert.ok(isStrictBase64(file.iv), 'iv must be strict Base64');
+  assert.ok(isStrictBase64(file.ciphertext), 'ciphertext must be strict Base64');
 
   assert.strictEqual(b64decode(file.salt).length, 16);
   assert.strictEqual(b64decode(file.iv).length, 12);
   assert.ok(b64decode(file.ciphertext).length > 0);
 
   assert.strictEqual(created.vault.publicKey, created.publicKey);
-  assert.ok(isStrictBase64(created.publicKey), 'publicKey muss striktes Base64 sein');
+  assert.ok(isStrictBase64(created.publicKey), 'publicKey must be strict Base64');
 
   const pub = b64decode(created.publicKey);
   assert.strictEqual(pub.length, 44);
@@ -147,11 +147,11 @@ test('createVault: Erfolg liefert Vault v1 mit erwarteten Parametern und gültig
     const expected = expectedPrefix[i];
     assert.ok(expected !== undefined);
     if (expected === undefined) return;
-    assert.strictEqual(pub[i], expected, `Pubkey-Präfix Byte ${String(i)}`);
+    assert.strictEqual(pub[i], expected, `Pubkey prefix byte ${String(i)}`);
   }
 });
 
-test('createVault: zwei Aufrufe erzeugen unterschiedliche salt, iv und publicKey', async () => {
+test('createVault: two calls produce different salt, iv and publicKey', async () => {
   const first = await getCreated();
   const r = await createVault(cryptoPort, random, clock, PASSWORD);
   assert.ok(r.ok);
@@ -163,34 +163,34 @@ test('createVault: zwei Aufrufe erzeugen unterschiedliche salt, iv und publicKey
   assert.notStrictEqual(first.vault.publicKey, second.vault.publicKey);
 });
 
-test('unlock: Erfolg liefert striktes Base64-PKCS8 passend zum vault.publicKey', async () => {
+test('unlock: success returns strict Base64 PKCS8 matching vault.publicKey', async () => {
   const vault = await getVault();
   const pkcs8 = await getPkcs8();
 
-  assert.ok(isStrictBase64(pkcs8), 'PKCS8 muss striktes Base64 sein');
+  assert.ok(isStrictBase64(pkcs8), 'PKCS8 must be strict Base64');
   const derived = await derivePublicKey(cryptoPort, pkcs8);
   assert.strictEqual(derived, vault.publicKey);
 });
 
-test('unlock: leeres Passwort -> SIGNING (Passwort fehlt)', async () => {
+test('unlock: empty password -> SIGNING (Password missing)', async () => {
   const vault = await getVault();
   const r = await unlock(cryptoPort, vault, '');
   assert.strictEqual(r.ok, false);
   if (r.ok) return;
   assert.strictEqual(r.error.code, 'SIGNING');
-  assert.strictEqual(r.error.message, 'Passwort fehlt');
+  assert.strictEqual(r.error.message, 'Password missing');
 });
 
-test('unlock: falsches Passwort -> SIGNING mit Standardmeldung', async () => {
+test('unlock: wrong password -> SIGNING with default message', async () => {
   const vault = await getVault();
   const r = await unlock(cryptoPort, vault, WRONG_PASSWORD);
   assert.strictEqual(r.ok, false);
   if (r.ok) return;
   assert.strictEqual(r.error.code, 'SIGNING');
-  assert.strictEqual(r.error.message, 'Falsches Passwort oder beschädigte Vault-Datei');
+  assert.strictEqual(r.error.message, 'Wrong password or corrupted vault file');
 });
 
-test('unlock: Salt kein striktes Base64 -> SIGNING (Vault-Datei beschädigt)', async () => {
+test('unlock: salt not strict Base64 -> SIGNING (Vault file corrupted)', async () => {
   const vault = await getVault();
   const broken = structuredClone(vault);
   broken.file.salt = '!!!!';
@@ -199,10 +199,10 @@ test('unlock: Salt kein striktes Base64 -> SIGNING (Vault-Datei beschädigt)', a
   assert.strictEqual(r.ok, false);
   if (r.ok) return;
   assert.strictEqual(r.error.code, 'SIGNING');
-  assert.strictEqual(r.error.message, 'Vault-Datei beschädigt');
+  assert.strictEqual(r.error.message, 'Vault file corrupted');
 });
 
-test('unlock: manipulierter Ciphertext -> SIGNING', async () => {
+test('unlock: tampered ciphertext -> SIGNING', async () => {
   const vault = await getVault();
   const broken = structuredClone(vault);
 
@@ -220,7 +220,7 @@ test('unlock: manipulierter Ciphertext -> SIGNING', async () => {
   assert.strictEqual(r.error.code, 'SIGNING');
 });
 
-test('unlockSigner: Erfolg liefert nicht-extrahierbaren Sign-Key und gültige Signatur', async () => {
+test('unlockSigner: success returns non-extractable sign key and valid signature', async () => {
   const vault = await getVault();
   const r = await unlockSigner(cryptoPort, vault, PASSWORD);
 
@@ -244,7 +244,7 @@ test('unlockSigner: Erfolg liefert nicht-extrahierbaren Sign-Key und gültige Si
   assert.strictEqual(verified, true);
 });
 
-test('unlockSigner: importierter Vault mit leerem publicKey liefert abgeleiteten Pubkey', async () => {
+test('unlockSigner: imported vault with empty publicKey returns derived pubkey', async () => {
   const vault = await getVault();
   const imported = structuredClone(vault);
   imported.publicKey = '';
@@ -258,7 +258,7 @@ test('unlockSigner: importierter Vault mit leerem publicKey liefert abgeleiteten
   assert.strictEqual(r.value.publicKey, derived);
 });
 
-test('unlockSigner: fremder gültiger publicKey -> SIGNING', async () => {
+test('unlockSigner: foreign valid publicKey -> SIGNING', async () => {
   const vault = await getVault();
   const foreign = await generateKeyPair(cryptoPort);
 
@@ -272,7 +272,7 @@ test('unlockSigner: fremder gültiger publicKey -> SIGNING', async () => {
   assert.strictEqual(r.error.code, 'SIGNING');
 });
 
-test('unlockSigner: falsches Passwort -> SIGNING', async () => {
+test('unlockSigner: wrong password -> SIGNING', async () => {
   const vault = await getVault();
   const r = await unlockSigner(cryptoPort, vault, WRONG_PASSWORD);
   assert.strictEqual(r.ok, false);
@@ -280,7 +280,7 @@ test('unlockSigner: falsches Passwort -> SIGNING', async () => {
   assert.strictEqual(r.error.code, 'SIGNING');
 });
 
-test('unlockSigner: iterations 1000 und 10_000_001 -> SIGNING', async () => {
+test('unlockSigner: iterations 1000 and 10_000_001 -> SIGNING', async () => {
   const vault = await getVault();
 
   const tooLow = structuredClone(vault);
@@ -298,7 +298,7 @@ test('unlockSigner: iterations 1000 und 10_000_001 -> SIGNING', async () => {
   assert.strictEqual(rHigh.error.code, 'SIGNING');
 });
 
-test('exportFile/importFile: JSON-Roundtrip liefert deepEqual-gleiches VaultFile', async () => {
+test('exportFile/importFile: JSON roundtrip returns a deepEqual VaultFile', async () => {
   const vault = await getVault();
   const text = exportFile(vault);
 
@@ -310,14 +310,14 @@ test('exportFile/importFile: JSON-Roundtrip liefert deepEqual-gleiches VaultFile
   assert.deepStrictEqual(r.value, vault.file);
 });
 
-test('importFile: Text länger als 65536 Zeichen -> TOO_LARGE', () => {
+test('importFile: text longer than 65536 characters -> TOO_LARGE', () => {
   const r = importFile('x'.repeat(65537));
   assert.strictEqual(r.ok, false);
   if (r.ok) return;
   assert.strictEqual(r.error.code, 'TOO_LARGE');
 });
 
-test('importFile: kein JSON bzw. JSON-Array -> ENVELOPE', () => {
+test('importFile: not JSON or JSON array -> ENVELOPE', () => {
   const r1 = importFile('{');
   assert.strictEqual(r1.ok, false);
   if (r1.ok) return;
@@ -345,7 +345,7 @@ test('importFile: v = 2 -> VERSION', async () => {
   assert.strictEqual(r.error.code, 'VERSION');
 });
 
-test('importFile: fehlendes Feld salt -> MISSING_FIELD', async () => {
+test('importFile: missing field salt -> MISSING_FIELD', async () => {
   const file = (await getVault()).file;
   const bad = {
     v: 1,
@@ -360,7 +360,7 @@ test('importFile: fehlendes Feld salt -> MISSING_FIELD', async () => {
   assert.strictEqual(r.error.code, 'MISSING_FIELD');
 });
 
-test('importFile: iterations als String -> FIELD_FORMAT', async () => {
+test('importFile: iterations as string -> FIELD_FORMAT', async () => {
   const file = (await getVault()).file;
   const bad = {
     v: 1,
@@ -376,7 +376,7 @@ test('importFile: iterations als String -> FIELD_FORMAT', async () => {
   assert.strictEqual(r.error.code, 'FIELD_FORMAT');
 });
 
-test('importFile: iterations 1000, 599999 und 10_000_001 -> LIMIT', async () => {
+test('importFile: iterations 1000, 599999 and 10_000_001 -> LIMIT', async () => {
   const file = (await getVault()).file;
 
   for (const iterations of [1000, 599999, 10_000_001]) {
@@ -395,7 +395,7 @@ test('importFile: iterations 1000, 599999 und 10_000_001 -> LIMIT', async () => 
   }
 });
 
-test('importFile: iterations 600000 und 10_000_000 -> ok', async () => {
+test('importFile: iterations 600000 and 10_000_000 -> ok', async () => {
   const file = (await getVault()).file;
 
   for (const iterations of [PBKDF2_ITERATIONS, 10_000_000]) {
@@ -414,7 +414,7 @@ test('importFile: iterations 600000 und 10_000_000 -> ok', async () => {
   }
 });
 
-test('importFile: salt "AAAA" (zu kurz) -> LIMIT', async () => {
+test('importFile: salt "AAAA" (too short) -> LIMIT', async () => {
   const file = (await getVault()).file;
   const bad = {
     v: 1,
@@ -430,7 +430,7 @@ test('importFile: salt "AAAA" (zu kurz) -> LIMIT', async () => {
   assert.strictEqual(r.error.code, 'LIMIT');
 });
 
-test('importFile: salt mit ungültigen Zeichen -> FIELD_FORMAT', async () => {
+test('importFile: salt with invalid characters -> FIELD_FORMAT', async () => {
   const file = (await getVault()).file;
   const bad = {
     v: 1,
@@ -462,7 +462,7 @@ test('importFile: iv "AAAA" -> LIMIT', async () => {
   assert.strictEqual(r.error.code, 'LIMIT');
 });
 
-test('importFile: ciphertext leer -> LIMIT', async () => {
+test('importFile: empty ciphertext -> LIMIT', async () => {
   const file = (await getVault()).file;
   const bad = {
     v: 1,
@@ -478,7 +478,7 @@ test('importFile: ciphertext leer -> LIMIT', async () => {
   assert.strictEqual(r.error.code, 'LIMIT');
 });
 
-test('saveVault/loadVault: Roundtrip ist deepEqual und nutzt VAULT_STORAGE_KEY', async () => {
+test('saveVault/loadVault: roundtrip is deepEqual and uses VAULT_STORAGE_KEY', async () => {
   const vault = await getVault();
   const storage = makeStorage();
 
@@ -496,7 +496,7 @@ test('saveVault/loadVault: Roundtrip ist deepEqual und nutzt VAULT_STORAGE_KEY',
   assert.deepStrictEqual(loaded.value, vault);
 });
 
-test('loadVault: leerer Speicher -> NOT_FOUND', () => {
+test('loadVault: empty storage -> NOT_FOUND', () => {
   const storage = makeStorage();
   const r = loadVault(storage);
   assert.strictEqual(r.ok, false);
@@ -504,7 +504,7 @@ test('loadVault: leerer Speicher -> NOT_FOUND', () => {
   assert.strictEqual(r.error.code, 'NOT_FOUND');
 });
 
-test('loadVault: Inhalt "{" bzw. "[]" -> ENVELOPE', () => {
+test('loadVault: content "{" or "[]" -> ENVELOPE', () => {
   const storage = makeStorage();
 
   storage.set(STORAGE_KEY, '{');
@@ -520,7 +520,7 @@ test('loadVault: Inhalt "{" bzw. "[]" -> ENVELOPE', () => {
   assert.strictEqual(r2.error.code, 'ENVELOPE');
 });
 
-test('loadVault: gespeichertes Objekt ohne publicKey -> MISSING_FIELD', async () => {
+test('loadVault: stored object without publicKey -> MISSING_FIELD', async () => {
   const vault = await getVault();
   const storage = makeStorage();
   storage.set(STORAGE_KEY, JSON.stringify({ file: vault.file }));
@@ -531,7 +531,7 @@ test('loadVault: gespeichertes Objekt ohne publicKey -> MISSING_FIELD', async ()
   assert.strictEqual(r.error.code, 'MISSING_FIELD');
 });
 
-test('loadVault: gespeicherte file mit iterations 1000 -> ok:false', async () => {
+test('loadVault: stored file with iterations 1000 -> ok:false', async () => {
   const vault = await getVault();
   const storage = makeStorage();
   storage.set(
@@ -546,7 +546,7 @@ test('loadVault: gespeicherte file mit iterations 1000 -> ok:false', async () =>
   assert.strictEqual(r.ok, false);
 });
 
-test('clearVault: entfernt Eintrag, danach loadVault -> NOT_FOUND', async () => {
+test('clearVault: removes entry, then loadVault -> NOT_FOUND', async () => {
   const vault = await getVault();
   const storage = makeStorage();
 
@@ -561,7 +561,7 @@ test('clearVault: entfernt Eintrag, danach loadVault -> NOT_FOUND', async () => 
   if (r.ok) return;
   assert.strictEqual(r.error.code, 'NOT_FOUND');
 });
-test('unlockSigner: unzulässige Iterationszahl wird sofort abgelehnt (kein PBKDF2-Lauf)', async () => {
+test('unlockSigner: disallowed iteration count is rejected immediately (no PBKDF2 run)', async () => {
   const vault = await getVault();
   const hostile = structuredClone(vault);
   hostile.file.iterations = 100_000_000;
@@ -573,6 +573,6 @@ test('unlockSigner: unzulässige Iterationszahl wird sofort abgelehnt (kein PBKD
   assert.strictEqual(r.ok, false);
   if (r.ok) return;
   assert.strictEqual(r.error.code, 'SIGNING');
-  // 100 Mio. PBKDF2-Runden würden Minuten dauern; die Ablehnung muss vorher erfolgen.
-  assert.ok(elapsedMs < 2000, `Ablehnung dauerte ${String(elapsedMs)} ms`);
+  // 100 million PBKDF2 rounds would take minutes; the rejection must happen first.
+  assert.ok(elapsedMs < 2000, `Rejection took ${String(elapsedMs)} ms`);
 });

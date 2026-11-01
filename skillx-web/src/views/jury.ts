@@ -9,7 +9,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   text(h, 'Jury');
   root.append(h);
   const note = el('p', 'derived-note');
-  text(note, 'Abgeleitet, nicht autoritativ.');
+  text(note, 'Derived, not authoritative.');
   root.append(note);
   const msg = liveRegion();
   root.append(msg);
@@ -20,7 +20,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     list.replaceChildren();
     if (!s.ownPubkey || !s.verifier) {
       const p = el('p');
-      text(p, 'Kein entsperrter Schlüssel.');
+      text(p, 'No unlocked key.');
       list.append(p);
       return;
     }
@@ -33,7 +33,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     const cases = deriveOpenJuryCases(s.verifier.getEntries(), s.ownPubkey);
     if (cases.length === 0) {
       const p = el('p');
-      text(p, 'Keine offenen Jury-Fälle.');
+      text(p, 'No open jury cases.');
       list.append(p);
       return;
     }
@@ -42,22 +42,22 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       const lg = el('legend');
       text(
         lg,
-        `Deal ${c.deal_id} – Berufungsrunde ${c.appeal_round}${c.voted ? ' (bereits abgestimmt)' : ''}`,
+        `Deal ${c.deal_id} – appeal round ${c.appeal_round}${c.voted ? ' (already voted)' : ''}`,
       );
       item.append(lg);
       if (c.voted) {
         const span = el('span');
-        text(span, 'Ihre Stimme wurde erfasst.');
+        text(span, 'Your vote has been recorded.');
         item.append(span);
       } else {
         for (const vote of ['buyer', 'seller'] as const) {
           const btn = el('button');
-          text(btn, vote === 'buyer' ? 'Käufer' : 'Verkäufer');
+          text(btn, vote === 'buyer' ? 'Buyer' : 'Seller');
           btn.disabled = blocked;
           btn.addEventListener('click', () => {
             const ctx = deps.makeActionContext();
             if (!ctx) {
-              text(msg, 'Aktion gesperrt.');
+              text(msg, 'Action blocked.');
               return;
             }
             void deps.runAction(castVote(ctx, c.deal_id, vote));
@@ -68,7 +68,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       list.append(item);
     }
     if (s.actionError) {
-      text(msg, `Fehler: ${formatError(s.actionError)}`);
+      text(msg, `Error: ${formatError(s.actionError)}`);
     } else if (s.actionMessage) {
       text(msg, s.actionMessage);
     }

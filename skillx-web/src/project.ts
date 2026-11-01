@@ -24,15 +24,15 @@ export interface DealView {
 }
 
 export type AmountKey =
-  | 'erhalten_ausgegeben'
-  | 'erhalten_treasury'
-  | 'erhalten_escrow'
-  | 'eingezahlt_escrow'
-  | 'berufungsgebuehren';
+  | 'received_issued'
+  | 'received_treasury'
+  | 'received_escrow'
+  | 'deposited_escrow'
+  | 'appeal_fees';
 
 export interface AccountTotals {
-  amounts: Record<AmountKey, number | 'Überlauf'>;
-  reputation: number | 'Überlauf';
+  amounts: Record<AmountKey, number | 'overflow'>;
+  reputation: number | 'overflow';
 }
 
 export interface JuryCase {
@@ -41,22 +41,22 @@ export interface JuryCase {
   voted: boolean;
 }
 
-export type KeyStatus = 'aktiv' | 'rotiert' | 'unbekannt';
+export type KeyStatus = 'active' | 'rotated' | 'unknown';
 
 const STATE_BY_TYPE: Partial<Record<LedgerEntry['event']['type'], string>> = {
-  DealCreated: 'angelegt',
-  DealConsented: 'zugestimmt',
-  EscrowFunded: 'finanziert',
-  DeliverableSubmitted: 'geliefert',
-  DealAccepted: 'akzeptiert',
-  DealAutoAccepted: 'akzeptiert',
-  DealRejected: 'abgelehnt',
-  DealExpired: 'abgelaufen',
-  DisputeOpened: 'Streit',
-  JuryAssigned: 'Jury gezogen',
-  DisputeResolved: 'entschieden',
-  AppealOpened: 'Berufung',
-  EscrowReleased: 'ausgezahlt',
+  DealCreated: 'created',
+  DealConsented: 'consented',
+  EscrowFunded: 'funded',
+  DeliverableSubmitted: 'delivered',
+  DealAccepted: 'accepted',
+  DealAutoAccepted: 'accepted',
+  DealRejected: 'rejected',
+  DealExpired: 'expired',
+  DisputeOpened: 'dispute',
+  JuryAssigned: 'jury assigned',
+  DisputeResolved: 'resolved',
+  AppealOpened: 'appeal',
+  EscrowReleased: 'released',
 };
 
 function readDealCreated(entry: LedgerEntry): DealPayload | null {
@@ -124,14 +124,14 @@ function jurorsOf(event: LedgerEntry['event']): Pubkey[] | null {
 }
 
 function addAmount(
-  current: number | 'Überlauf',
+  current: number | 'overflow',
   delta: number,
-): number | 'Überlauf' {
-  if (current === 'Überlauf') {
-    return 'Überlauf';
+): number | 'overflow' {
+  if (current === 'overflow') {
+    return 'overflow';
   }
   const next = current + delta;
-  return Number.isSafeInteger(next) ? next : 'Überlauf';
+  return Number.isSafeInteger(next) ? next : 'overflow';
 }
 
 export function deriveDeals(entries: readonly LedgerEntry[]): Map<string, DealView> {
@@ -148,7 +148,7 @@ export function deriveDeals(entries: readonly LedgerEntry[]): Map<string, DealVi
           amount: created.amount,
           deadline: created.deadline,
           criteria_hash: created.criteria_hash,
-          state: 'angelegt',
+          state: 'created',
           appealRound: 0,
         });
       }
@@ -180,14 +180,14 @@ export function deriveAccountTotals(
   entries: readonly LedgerEntry[],
   pubkey: Pubkey,
 ): AccountTotals {
-  const amounts: Record<AmountKey, number | 'Überlauf'> = {
-    erhalten_ausgegeben: 0,
-    erhalten_treasury: 0,
-    erhalten_escrow: 0,
-    eingezahlt_escrow: 0,
-    berufungsgebuehren: 0,
+  const amounts: Record<AmountKey, number | 'overflow'> = {
+    received_issued: 0,
+    received_treasury: 0,
+    received_escrow: 0,
+    deposited_escrow: 0,
+    appeal_fees: 0,
   };
-  let reputation: number | 'Überlauf' = 0;
+  let reputation: number | 'overflow' = 0;
   for (const entry of entries) {
     const event = entry.event;
     switch (event.type) {
@@ -195,7 +195,7 @@ export function deriveAccountTotals(
         if (strField(event, 'recipient') === pubkey) {
           const a = numField(event, 'amount');
           if (a !== null) {
-            amounts.erhalten_ausgegeben = addAmount(amounts.erhalten_ausgegeben, a);
+            amounts.received_issued = addAmount(amounts.received_issued, a);
           }
         }
         break;
@@ -204,7 +204,7 @@ export function deriveAccountTotals(
         if (strField(event, 'recipient') === pubkey) {
           const a = numField(event, 'amount');
           if (a !== null) {
-            amounts.erhalten_treasury = addAmount(amounts.erhalten_treasury, a);
+            amounts.received_treasury = addAmount(amounts.received_treasury, a);
           }
         }
         break;
@@ -213,7 +213,7 @@ export function deriveAccountTotals(
         if (strField(event, 'to') === pubkey) {
           const a = numField(event, 'amount');
           if (a !== null) {
-            amounts.erhalten_escrow = addAmount(amounts.erhalten_escrow, a);
+            amounts.received_escrow = addAmount(amounts.received_escrow, a);
           }
         }
         break;
@@ -222,7 +222,7 @@ export function deriveAccountTotals(
         if (strField(event, 'from') === pubkey) {
           const a = numField(event, 'amount');
           if (a !== null) {
-            amounts.eingezahlt_escrow = addAmount(amounts.eingezahlt_escrow, a);
+            amounts.deposited_escrow = addAmount(amounts.deposited_escrow, a);
           }
         }
         break;
@@ -231,7 +231,7 @@ export function deriveAccountTotals(
         if (strField(event, 'by') === pubkey) {
           const a = numField(event, 'fee_amount');
           if (a !== null) {
-            amounts.berufungsgebuehren = addAmount(amounts.berufungsgebuehren, a);
+            amounts.appeal_fees = addAmount(amounts.appeal_fees, a);
           }
         }
         break;
@@ -356,15 +356,15 @@ export function deriveKeyStatus(
     }
   }
   if (rotatedOut) {
-    return 'rotiert';
+    return 'rotated';
   }
   if (created) {
-    return 'aktiv';
+    return 'active';
   }
-  return 'unbekannt';
+  return 'unknown';
 }
 
-/** Extrahiert den Deal-consent-Body aus einer verifizierten DealCreated-Payload. */
+/** Extracts the deal consent body from a verified DealCreated payload. */
 export function consentBodyOfDeal(deal: DealPayload): Record<string, unknown> {
   return {
     deal_id: deal.deal_id,

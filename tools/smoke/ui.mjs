@@ -27,16 +27,16 @@ page.on('pageerror', (e) => consoleErrors.push(String(e)));
 await page.goto('http://127.0.0.1:8080/#/identity');
 const PW = 'correct-horse-battery-staple';
 await page.fill('#pw1', PW); await page.fill('#pw2', PW);
-await page.click('button:has-text("Schlüssel erzeugen")');
+await page.click('button:has-text("Create key")');
 await page.waitForFunction(() => document.querySelector('code')?.textContent?.length > 20, null, { timeout: 30000 });
 const sellerPk = (await page.textContent('code')).trim();
-rec('UI: Schlüssel erzeugen', sellerPk.length > 20, sellerPk.slice(0, 12));
+rec('UI: create key', sellerPk.length > 20, sellerPk.slice(0, 12));
 const stored = await page.evaluate(() => localStorage.getItem('skillx.vault.v1'));
 const vaultJson = JSON.parse(stored);
 const vault = vaultJson.file ? vaultJson : { publicKey: sellerPk, file: vaultJson };
 const unl = await vaultMod.unlock(globalThis.crypto, vault, PW);
 const sellerSk = unl.ok ? unl.value : null;
-rec('Vault entschlüsselt (Testzugriff)', sellerSk !== null);
+rec('Vault decrypted (test access)', sellerSk !== null);
 const seller = { publicKey: sellerPk, privateKey: sellerSk };
 
 // 2 genesis
@@ -54,7 +54,7 @@ writeFileSync(`${T}/relay/cfg.json`, JSON.stringify({
 r = run(['genesis', 'build', '--config', `${T}/relay/cfg.json`, '--relay-public-key', relayPub, '--out', `${T}/relay/genesis.json`]);
 console.log(r.stdout, r.stderr);
 const sha = /GENESIS_SHA256=(\S+)/.exec(r.stdout)?.[1];
-rec('Genesis gebaut', !!sha, sha?.slice(0, 12));
+rec('Genesis built', !!sha, sha?.slice(0, 12));
 if (!sha) { await browser.close(); process.exit(1); }
 
 // 3 relay
@@ -77,7 +77,7 @@ const bc = mk(buyer); await bc.sync();
 const dealId = '00000000-0000-4000-8000-000000000001';
 const h64 = 'c'.repeat(64);
 const dc = await bc.submit('DealCreated', { deal_id: dealId, buyer: buyer.publicKey, seller: seller.publicKey, amount: 1000, criteria_hash: h64, deadline: new Date(Date.now() + 30 * 864e5).toISOString() });
-rec('DealCreated (Skript)', dc.ok, dc.ok ? '' : JSON.stringify(dc.error));
+rec('DealCreated (script)', dc.ok, dc.ok ? '' : JSON.stringify(dc.error));
 
 // 5 UI
 await page.goto('http://127.0.0.1:8080/#/status');
