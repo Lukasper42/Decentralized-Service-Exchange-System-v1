@@ -31,7 +31,7 @@ async function sha256Utf8Ref(s: string): Promise<string> {
     .join('');
 }
 
-test('canonical sortiert Schlüssel (auch verschachtelt)', () => {
+test('canonical sorts keys (also nested)', () => {
   assert.equal(
     canonical({ b: 1, a: { d: [1, 2], c: 'x' } }),
     '{"a":{"c":"x","d":[1,2]},"b":1}',
@@ -42,7 +42,7 @@ test('canonical sortiert Schlüssel (auch verschachtelt)', () => {
   assert.equal(canonical({}), '{}');
 });
 
-test('canonical Fehler bei Float, -0, undefined, verbotenen Schlüsseln, Zyklus', () => {
+test('canonical errors on float, -0, undefined, forbidden keys, cycle', () => {
   assert.throws(() => canonical(1.5), CanonicalError);
   assert.throws(() => canonical(-0), CanonicalError);
   assert.throws(() => canonical(undefined), CanonicalError);
@@ -54,7 +54,7 @@ test('canonical Fehler bei Float, -0, undefined, verbotenen Schlüsseln, Zyklus'
   assert.throws(() => canonical([1, , 2] as unknown[]), CanonicalError);
 });
 
-test('Ed25519 Roundtrip, manipulierte Nachricht, falsche Länge', async () => {
+test('Ed25519 roundtrip, tampered message, wrong length', async () => {
   const kp = await generateKeyPair(port);
   assert.ok(isValidPubkey(kp.publicKey));
   const unsigned: Omit<SignedEvent, 'signature'> = {
@@ -76,7 +76,7 @@ test('Ed25519 Roundtrip, manipulierte Nachricht, falsche Länge', async () => {
   assert.throws(() => b64DecodeStrict('###'), Error);
 });
 
-test('Attestation mit Domänenpräfix (kinds sind getrennt)', async () => {
+test('Attestation with domain prefix (kinds are separate)', async () => {
   const kp = await generateKeyPair(port);
   const body = { deal_id: 'd1' };
   const msg = attestationMessage('deal-consent', body);
@@ -88,7 +88,7 @@ test('Attestation mit Domänenpräfix (kinds sind getrennt)', async () => {
   assert.ok(!(await verifyAttestation(port, kp.publicKey, 'checkpoint', body, sig)));
 });
 
-test('eventHash/receiptHash stabil (Referenz aus eigener Rechnung)', async () => {
+test('eventHash/receiptHash stable (reference from own computation)', async () => {
   const kp = await generateKeyPair(port);
   const event = await signEvent(port, kp.privateKeyPkcs8, {
     type: 'FeeBurned',

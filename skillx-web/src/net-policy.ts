@@ -9,13 +9,13 @@ export function checkRelayUrl(input: string): RelayUrlCheck {
   try {
     u = new URL(input.trim());
   } catch {
-    return { ok: false, reason: 'Ungültige Relay-URL.' };
+    return { ok: false, reason: 'Invalid relay URL.' };
   }
   if (u.username !== '' || u.password !== '') {
-    return { ok: false, reason: 'Zugangsdaten in der URL sind nicht erlaubt.' };
+    return { ok: false, reason: 'Credentials in the URL are not allowed.' };
   }
   if (u.search !== '' || u.hash !== '') {
-    return { ok: false, reason: 'Query und Fragment in der Relay-URL sind nicht erlaubt.' };
+    return { ok: false, reason: 'Query and fragment in the relay URL are not allowed.' };
   }
   const host = u.hostname.toLowerCase();
   const onion = host.endsWith('.onion');
@@ -27,6 +27,6 @@ export function checkRelayUrl(input: string): RelayUrlCheck {
   }
   return {
     ok: false,
-    reason: 'Nur https:// erlaubt (http:// nur für .onion und localhost).',
+    reason: 'Only https:// allowed (http:// only for .onion and localhost).',
   };
 }

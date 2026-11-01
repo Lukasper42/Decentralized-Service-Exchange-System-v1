@@ -36,11 +36,11 @@ export function render(root: HTMLElement, deps: Deps): () => void {
 
   const container = el('div', 'messages-view');
   const title = el('h2');
-  text(title, 'Nachrichten');
+  text(title, 'Messages');
   container.append(title);
 
   const hint = el('p', 'hint');
-  text(hint, 'Der Postfach-Server sieht IP-Adresse und Zugriffszeiten. Nutze Tor/VPN.');
+  text(hint, 'The mailbox server sees your IP address and access times. Use Tor/VPN.');
   container.append(hint);
 
   const status = el('div', 'status');
@@ -61,47 +61,47 @@ export function render(root: HTMLElement, deps: Deps): () => void {
 
   const urlSection = el('section', 'mailbox-url');
   const urlLabel = el('label');
-  text(urlLabel, 'Postfach-URL');
+  text(urlLabel, 'Mailbox URL');
   const urlInput = el('input') as HTMLInputElement;
   urlInput.value = baseUrl;
   urlInput.placeholder = 'https://…';
   const urlButton = el('button') as HTMLButtonElement;
-  text(urlButton, 'URL speichern');
+  text(urlButton, 'Save URL');
   urlButton.addEventListener('click', () => {
     const checked = checkRelayUrl(urlInput.value.trim());
     if (!checked.ok) {
-      setStatus(`Ungültige URL: ${checked.reason}`);
+      setStatus(`Invalid URL: ${checked.reason}`);
       return;
     }
     deps.storage.set(URL_KEY, checked.url);
     baseUrl = checked.url;
     client = new MailboxClient(checked.url, deps.fetch);
-    setStatus('Postfach-URL gespeichert.');
+    setStatus('Mailbox URL saved.');
   });
   urlSection.append(urlLabel, urlInput, urlButton);
   container.append(urlSection);
 
   const keySection = el('section', 'key-bundle');
   const keyButton = el('button') as HTMLButtonElement;
-  text(keyButton, 'Schlüsselbündel veröffentlichen');
+  text(keyButton, 'Publish key bundle');
   const keyStatus = el('div', 'key-status');
   text(keyStatus, '');
   keyButton.addEventListener('click', () => {
     void (async () => {
       const identity = deps.getIdentity();
       if (identity === null) {
-        setStatus('Keine entsperrte Identität.');
+        setStatus('No unlocked identity.');
         return;
       }
       const mailboxClient = getClient();
       if (mailboxClient === null) {
-        setStatus('Bitte zuerst eine gültige Postfach-URL setzen.');
+        setStatus('Please set a valid mailbox URL first.');
         return;
       }
       try {
         const derived = await deriveMessagingKey(deps.crypto, identity.edKey);
         if (!derived.ok) {
-          setStatus(`Schlüssel: ${derived.error.message}`);
+          setStatus(`Key: ${derived.error.message}`);
           return;
         }
         const key = derived.value;
@@ -114,13 +114,13 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         );
         const result = await mailboxClient.putKeyBundle(bundle);
         if (!result.ok) {
-          setStatus(`Schlüsselbündel: ${result.error.code} ${result.error.message}`);
+          setStatus(`Key bundle: ${result.error.code} ${result.error.message}`);
           return;
         }
         text(keyStatus, `X25519: ${key.xPubkey}`);
-        setStatus(`Schlüsselbündel veröffentlicht (${result.value.status}).`);
+        setStatus(`Key bundle published (${result.value.status}).`);
       } catch {
-        setStatus('Schlüsselbündel konnte nicht erstellt werden.');
+        setStatus('Key bundle could not be created.');
       }
     })();
   });
@@ -129,37 +129,37 @@ export function render(root: HTMLElement, deps: Deps): () => void {
 
   const sendSection = el('section', 'send-message');
   const recipientLabel = el('label');
-  text(recipientLabel, 'Empfänger (Identity-Pubkey)');
+  text(recipientLabel, 'Recipient (identity pubkey)');
   const recipientInput = el('input') as HTMLInputElement;
   const bodyLabel = el('label');
   text(bodyLabel, 'Text');
   const bodyInput = el('textarea') as HTMLTextAreaElement;
   const sendButton = el('button') as HTMLButtonElement;
-  text(sendButton, 'Senden');
+  text(sendButton, 'Send');
   sendButton.addEventListener('click', () => {
     void (async () => {
       const identity = deps.getIdentity();
       if (identity === null) {
-        setStatus('Keine entsperrte Identität.');
+        setStatus('No unlocked identity.');
         return;
       }
       const mailboxClient = getClient();
       if (mailboxClient === null) {
-        setStatus('Bitte zuerst eine gültige Postfach-URL setzen.');
+        setStatus('Please set a valid mailbox URL first.');
         return;
       }
       const recipient = recipientInput.value.trim();
       const body = bodyInput.value;
       if (recipient.length === 0) {
-        setStatus('Bitte Empfänger angeben.');
+        setStatus('Please enter a recipient.');
         return;
       }
       if (body.length === 0) {
-        setStatus('Bitte Text angeben.');
+        setStatus('Please enter a message text.');
         return;
       }
       if (!isValidPubkey(recipient)) {
-        setStatus('Ungültiger Empfänger-Pubkey (erwartet: Base64, 44 Bytes SPKI).');
+        setStatus('Invalid recipient pubkey (expected: Base64, 44 bytes SPKI).');
         return;
       }
       try {
@@ -194,9 +194,9 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         };
         store.add(stored);
         bodyInput.value = '';
-        setStatus(`Gesendet (${sendResult.value}).`);
+        setStatus(`Sent (${sendResult.value}).`);
       } catch {
-        setStatus('Senden fehlgeschlagen.');
+        setStatus('Sending failed.');
       }
     })();
   });
@@ -205,7 +205,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
 
   const inboxSection = el('section', 'inbox');
   const inboxButton = el('button') as HTMLButtonElement;
-  text(inboxButton, 'Posteingang abrufen');
+  text(inboxButton, 'Fetch inbox');
   const inboxList = el('div', 'inbox-list');
   const inboxStatus = el('div', 'inbox-status');
   text(inboxStatus, '');
@@ -215,7 +215,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     const groups = store.listByPeer();
     if (groups.size === 0) {
       const empty = el('p');
-      text(empty, 'Keine Nachrichten.');
+      text(empty, 'No messages.');
       inboxList.append(empty);
       return;
     }
@@ -227,24 +227,24 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       for (const message of messages) {
         const row = el('div', 'message');
         const meta = el('div', 'meta');
-        text(meta, `${message.direction === 'in' ? 'Empfangen' : 'Gesendet'} ${message.sentAt}`);
+        text(meta, `${message.direction === 'in' ? 'Received' : 'Sent'} ${message.sentAt}`);
         row.append(meta);
         const body = el('div', 'body');
         text(body, message.body);
         row.append(body);
         if (message.direction === 'in') {
           const deleteButton = el('button') as HTMLButtonElement;
-          text(deleteButton, 'Löschen');
+          text(deleteButton, 'Delete');
           deleteButton.addEventListener('click', () => {
             void (async () => {
               const identity = deps.getIdentity();
               if (identity === null) {
-                setStatus('Keine entsperrte Identität.');
+                setStatus('No unlocked identity.');
                 return;
               }
               const mailboxClient = getClient();
               if (mailboxClient === null) {
-                setStatus('Bitte zuerst eine gültige Postfach-URL setzen.');
+                setStatus('Please set a valid mailbox URL first.');
                 return;
               }
               try {
@@ -264,14 +264,14 @@ export function render(root: HTMLElement, deps: Deps): () => void {
                   auth
                 );
                 if (!result.ok) {
-                  setStatus(`Löschen: ${result.error.code} ${result.error.message}`);
+                  setStatus(`Delete: ${result.error.code} ${result.error.message}`);
                   return;
                 }
                 store.remove(message.serverId);
                 renderInbox();
-                setStatus('Nachricht gelöscht.');
+                setStatus('Message deleted.');
               } catch {
-                setStatus('Löschen fehlgeschlagen.');
+                setStatus('Deleting failed.');
               }
             })();
           });
@@ -287,18 +287,18 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     void (async () => {
       const identity = deps.getIdentity();
       if (identity === null) {
-        setStatus('Keine entsperrte Identität.');
+        setStatus('No unlocked identity.');
         return;
       }
       const mailboxClient = getClient();
       if (mailboxClient === null) {
-        setStatus('Bitte zuerst eine gültige Postfach-URL setzen.');
+        setStatus('Please set a valid mailbox URL first.');
         return;
       }
       try {
         const derived = await deriveMessagingKey(deps.crypto, identity.edKey);
         if (!derived.ok) {
-          setStatus(`Schlüssel: ${derived.error.message}`);
+          setStatus(`Key: ${derived.error.message}`);
           return;
         }
         const key = derived.value;
@@ -314,7 +314,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         );
         const result = await mailboxClient.fetchMessages(myMailboxId, auth, lastSeq);
         if (!result.ok) {
-          setStatus(`Posteingang: ${result.error.code} ${result.error.message}`);
+          setStatus(`Inbox: ${result.error.code} ${result.error.message}`);
           return;
         }
         let openedCount = 0;
@@ -339,10 +339,10 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         }
         lastSeq = result.value.next;
         renderInbox();
-        text(inboxStatus, `${openedCount} neue Nachricht(en) geladen.`);
-        setStatus('Posteingang aktualisiert.');
+        text(inboxStatus, `${openedCount} new message(s) loaded.`);
+        setStatus('Inbox updated.');
       } catch {
-        setStatus('Posteingang konnte nicht geladen werden.');
+        setStatus('Inbox could not be loaded.');
       }
     })();
   });
@@ -352,23 +352,23 @@ export function render(root: HTMLElement, deps: Deps): () => void {
 
   const historySection = el('section', 'history');
   const historyLabel = el('label');
-  text(historyLabel, 'Passwort für den lokalen Verlauf (verschlüsselt, mind. 16 Zeichen)');
+  text(historyLabel, 'Password for the local history (encrypted, min. 16 characters)');
   const historyPw = el('input');
   historyPw.type = 'password';
   historyPw.autocomplete = 'off';
   const saveHistory = el('button');
-  text(saveHistory, 'Verlauf verschlüsselt speichern');
+  text(saveHistory, 'Save history encrypted');
   const loadHistory = el('button');
-  text(loadHistory, 'Verlauf laden');
+  text(loadHistory, 'Load history');
   saveHistory.addEventListener('click', () => {
     void (async () => {
       if (historyPw.value.length < 16) {
-        setStatus('Passwort zu kurz (mindestens 16 Zeichen).');
+        setStatus('Password too short (at least 16 characters).');
         return;
       }
       const r = await store.persist(historyPw.value);
       historyPw.value = '';
-      setStatus(r.ok ? 'Verlauf gespeichert.' : `Verlauf: ${r.error.message}`);
+      setStatus(r.ok ? 'History saved.' : `History: ${r.error.message}`);
     })();
   });
   loadHistory.addEventListener('click', () => {
@@ -376,10 +376,10 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       const r = await store.load(historyPw.value);
       historyPw.value = '';
       if (!r.ok) {
-        setStatus(`Verlauf: ${r.error.message}`);
+        setStatus(`History: ${r.error.message}`);
         return;
       }
-      setStatus(r.value ? 'Verlauf geladen.' : 'Kein gespeicherter Verlauf.');
+      setStatus(r.value ? 'History loaded.' : 'No saved history.');
       renderInbox();
     })();
   });

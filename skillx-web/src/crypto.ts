@@ -22,7 +22,7 @@ function isPlainObject(v: object): boolean {
 
 function canonicalInner(value: unknown, depth: number, path: string): string {
   if (depth > MAX_DEPTH) {
-    throw new CanonicalError('Maximale Tiefe 64 überschritten', path);
+    throw new CanonicalError('Maximum depth 64 exceeded', path);
   }
   if (value === null) {
     return 'null';
@@ -35,34 +35,34 @@ function canonicalInner(value: unknown, depth: number, path: string): string {
     try {
       const s = JSON.stringify(value);
       if (s === undefined) {
-        throw new CanonicalError('Ungültiger String', path);
+        throw new CanonicalError('Invalid string', path);
       }
       return s;
     } catch {
-      throw new CanonicalError('Ungepaartes Surrogat im String', path);
+      throw new CanonicalError('Unpaired surrogate in string', path);
     }
   }
   if (t === 'number') {
     const n = value as number;
     if (!Number.isSafeInteger(n)) {
       throw new CanonicalError(
-        'Nur sichere Ganzzahlen erlaubt',
+        'Only safe integers allowed',
         path,
       );
     }
     if (n === 0 && Object.is(n, -0)) {
-      throw new CanonicalError('-0 ist nicht erlaubt', path);
+      throw new CanonicalError('-0 is not allowed', path);
     }
     return String(n);
   }
   if (t === 'undefined' || t === 'function' || t === 'symbol' || t === 'bigint') {
-    throw new CanonicalError(`Typ ${t} ist nicht kanonisierbar`, path);
+    throw new CanonicalError(`Type ${t} cannot be canonicalized`, path);
   }
   if (Array.isArray(value)) {
     const parts: string[] = [];
     for (let i = 0; i < value.length; i++) {
       if (!(i in value)) {
-        throw new CanonicalError('Loch in der Array', `${path}[${i}]`);
+        throw new CanonicalError('Hole in array', `${path}[${i}]`);
       }
       parts.push(canonicalInner(value[i], depth + 1, `${path}[${i}]`));
     }
@@ -71,14 +71,14 @@ function canonicalInner(value: unknown, depth: number, path: string): string {
   if (typeof value === 'object') {
     if (!isPlainObject(value)) {
       throw new CanonicalError(
-        'Nur einfache Objekte sind kanonisierbar',
+        'Only plain objects can be canonicalized',
         path,
       );
     }
     const keys = Object.keys(value).sort();
     for (const k of keys) {
       if (FORBIDDEN_KEYS.includes(k)) {
-        throw new CanonicalError(`Verbotener Schlüssel "${k}"`, path);
+        throw new CanonicalError(`Forbidden key "${k}"`, path);
       }
     }
     const parts: string[] = [];
@@ -86,7 +86,7 @@ function canonicalInner(value: unknown, depth: number, path: string): string {
       const v = (value as Record<string, unknown>)[k];
       if (v === undefined) {
         throw new CanonicalError(
-          'undefined-Wert ist nicht kanonisierbar',
+          'undefined value cannot be canonicalized',
           `${path}.${k}`,
         );
       }
@@ -94,17 +94,17 @@ function canonicalInner(value: unknown, depth: number, path: string): string {
     }
     return '{' + parts.join(',') + '}';
   }
-  throw new CanonicalError('Unbekannter Typ', path);
+  throw new CanonicalError('Unknown type', path);
 }
 
 export function canonical(value: unknown): string {
   return canonicalInner(value, 0, '$');
 }
 
-/** Kanonisches JSON ohne ein bestimmtes Feld (für Signatur-Vorberechnung). */
+/** Canonical JSON without a given field (for signature pre-computation). */
 export function canonicalWithout(value: unknown, field: string): string {
   if (!isRecord(value)) {
-    throw new CanonicalError('Objekt erwartet', '$');
+    throw new CanonicalError('Object expected', '$');
   }
   const copy: Record<string, unknown> = {};
   for (const k of Object.keys(value)) {
@@ -122,7 +122,7 @@ export function isHash(s: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Base64 (strikt) und Hex
+// Base64 (strict) and hex
 // ---------------------------------------------------------------------------
 
 const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -157,16 +157,16 @@ export function b64Encode(bytes: Uint8Array): string {
 
 export function b64DecodeStrict(s: string): Uint8Array {
   if (s.length % 4 !== 0) {
-    throw new Base64Error('Base64-Länge ungültig');
+    throw new Base64Error('Invalid Base64 length');
   }
   const clean = s.replace(/=+$/, '');
   const rem = clean.length % 4;
   if (rem === 1) {
-    throw new Base64Error('Base64-Rest ungültig');
+    throw new Base64Error('Invalid Base64 remainder');
   }
   const padCount = s.length - clean.length;
   if (padCount > 2) {
-    throw new Base64Error('Zu viel Padding');
+    throw new Base64Error('Too much padding');
   }
   const outLen = Math.floor((clean.length * 3) / 4);
   const out = new Uint8Array(outLen);
@@ -176,11 +176,11 @@ export function b64DecodeStrict(s: string): Uint8Array {
   for (let i = 0; i < clean.length; i++) {
     const c = clean.charCodeAt(i);
     if (c >= 128) {
-      throw new Base64Error('Ungültiges Zeichen');
+      throw new Base64Error('Invalid character');
     }
     const v = B64_LOOKUP[c] ?? -1;
     if (v < 0 || v === 64) {
-      throw new Base64Error('Ungültiges Zeichen');
+      throw new Base64Error('Invalid character');
     }
     buffer = (buffer << 6) | v;
     bits += 6;
@@ -190,13 +190,13 @@ export function b64DecodeStrict(s: string): Uint8Array {
       o++;
     }
   }
-  // Restbits müssen Null sein
+  // Remaining bits must be zero
   if (bits > 0 && (buffer & ((1 << bits) - 1)) !== 0) {
-    throw new Base64Error('Nicht abgeschaltete Bits');
+    throw new Base64Error('Bits not zero');
   }
-  // Re-Encode muss identisch sein
+  // Re-encoding must be identical
   if (b64Encode(out) !== s) {
-    throw new Base64Error('Base64 nicht kanonisch');
+    throw new Base64Error('Base64 not canonical');
   }
   return out;
 }
@@ -211,7 +211,7 @@ export function bytesToHexLower(bytes: Uint8Array): string {
 
 export function hexToBytesLower(s: string): Uint8Array {
   if (!HEX_RE.test(s)) {
-    throw new Base64Error('Kein 64-stelliges lowercase Hex');
+    throw new Base64Error('Not 64-character lowercase hex');
   }
   const out = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
@@ -236,10 +236,10 @@ export async function sha256HexUtf8(port: CryptoPort, text: string): Promise<Has
 }
 
 // ---------------------------------------------------------------------------
-// Ed25519 über WebCrypto
+// Ed25519 via WebCrypto
 // ---------------------------------------------------------------------------
 
-// 302a300506032b6570032100 + 32 Byte PublicKey
+// 302a300506032b6570032100 + 32 bytes public key
 const SPKI_PREFIX_HEX = '302a300506032b6570032100';
 
 function spkiPrefixBytes(): Uint8Array {
@@ -258,21 +258,21 @@ export class KeyFormatError extends Error {
   }
 }
 
-/** Prüft strict Base64, 44 Bytes Länge und das Ed25519-SPKI-Präfix. */
+/** Checks strict Base64, 44 bytes length and the Ed25519 SPKI prefix. */
 export function validatePubkey(pubkey: string): Uint8Array {
   let bytes: Uint8Array;
   try {
     bytes = b64DecodeStrict(pubkey);
   } catch {
-    throw new KeyFormatError('Pubkey ist kein striktes Base64');
+    throw new KeyFormatError('Pubkey is not strict Base64');
   }
   if (bytes.length !== 44) {
-    throw new KeyFormatError('Pubkey muss 44 Bytes haben');
+    throw new KeyFormatError('Pubkey must be 44 bytes');
   }
   const prefix = spkiPrefixBytes();
   for (let i = 0; i < prefix.length; i++) {
     if (bytes[i] !== prefix[i]) {
-      throw new KeyFormatError('Falsches SPKI-Präfix');
+      throw new KeyFormatError('Wrong SPKI prefix');
     }
   }
   return bytes;
@@ -292,10 +292,10 @@ export function validateSigBytes(sig: string): Uint8Array {
   try {
     bytes = b64DecodeStrict(sig);
   } catch {
-    throw new KeyFormatError('Signatur ist kein striktes Base64');
+    throw new KeyFormatError('Signature is not strict Base64');
   }
   if (bytes.length !== 64) {
-    throw new KeyFormatError('Signatur muss 64 Bytes haben');
+    throw new KeyFormatError('Signature must be 64 bytes');
   }
   return bytes;
 }
@@ -311,7 +311,7 @@ async function importVerifyKey(port: CryptoPort, pubkey: Pubkey): Promise<Crypto
   );
 }
 
-/** Hinweis: Browser-Verifikation ist nicht RFC-8032-strict. */
+/** Note: browser verification is not RFC 8032 strict. */
 export async function verifySignature(
   port: CryptoPort,
   pubkey: Pubkey,
@@ -346,7 +346,7 @@ export async function signWithPrivateKey(
   try {
     pkcs8 = b64DecodeStrict(privateKeyPkcs8Base64);
   } catch {
-    throw new KeyFormatError('Privater Schlüssel ist kein striktes Base64');
+    throw new KeyFormatError('Private key is not strict Base64');
   }
   const key = await port.subtle.importKey(
     'pkcs8',
@@ -377,7 +377,7 @@ export async function generateKeyPair(port: CryptoPort): Promise<GeneratedKeyPai
   };
 }
 
-/** Importiert einen privaten Schlüssel mit extractable:false (nur zum Signieren). */
+/** Imports a private key with extractable:false (signing only). */
 export async function importNonExtractablePrivate(
   port: CryptoPort,
   pkcs8Base64: string,
@@ -420,7 +420,7 @@ export async function relayKeyId(port: CryptoPort, pubkey: Pubkey): Promise<Hash
 }
 
 // ---------------------------------------------------------------------------
-// Signaturen für Events / Receipts / Attestations
+// Signatures for events / receipts / attestations
 // ---------------------------------------------------------------------------
 
 export const RECEIPT_FIELDS = [
@@ -439,7 +439,7 @@ export function checkReceiptShape(receipt: Receipt): void {
   if (keys.length !== expected.length) {
     throw new GuardError(
       'UNKNOWN_FIELD',
-      'Receipt hat zusätzliche oder fehlende Felder',
+      'Receipt has extra or missing fields',
       '$.receipt',
     );
   }
@@ -447,7 +447,7 @@ export function checkReceiptShape(receipt: Receipt): void {
     if (keys[i] !== expected[i]) {
       throw new GuardError(
         'UNKNOWN_FIELD',
-        `Receipt-Feld "${String(keys[i])}" unerwartet`,
+        `Unexpected receipt field "${String(keys[i])}"`,
         '$.receipt',
       );
     }
@@ -500,9 +500,9 @@ export async function signReceipt(
 }
 
 /**
- * Prüft eine Receipt-Signatur gegen den Relay-Pubkey. keyId muss bereits durch
- * den Schlüsselbereich (Section 4) bestimmt worden sein und wird hier
- * zusätzlich gegen relayKeyId(relayPubkey) validiert.
+ * Verifies a receipt signature against the relay pubkey. keyId must already have been
+ * determined by the key range (section 4) and is additionally validated here
+ * against relayKeyId(relayPubkey).
  */
 export async function verifyReceiptWithKeyId(
   port: CryptoPort,
@@ -527,7 +527,7 @@ export async function verifyReceipt(
   return verifyReceiptWithKeyId(port, receipt, relayPubkey, expectedKeyId);
 }
 
-/** Leitet den Ed25519-Public-Key (SPKI, Base64) aus einem PKCS8-Schlüssel ab. */
+/** Derives the Ed25519 public key (SPKI, Base64) from a PKCS8 key. */
 export async function derivePublicKey(
   port: CryptoPort,
   privateKeyPkcs8Base64: string,
@@ -536,7 +536,7 @@ export async function derivePublicKey(
   try {
     pkcs8 = b64DecodeStrict(privateKeyPkcs8Base64);
   } catch {
-    throw new KeyFormatError('Privater Schlüssel ist kein striktes Base64');
+    throw new KeyFormatError('Private key is not strict Base64');
   }
   const key = await port.subtle.importKey(
     'pkcs8',
@@ -552,10 +552,10 @@ export async function derivePublicKey(
   try {
     raw = b64DecodeStrict(padded);
   } catch {
-    throw new KeyFormatError('Öffentlicher Schlüssel nicht ableitbar');
+    throw new KeyFormatError('Public key cannot be derived');
   }
   if (raw.length !== 32) {
-    throw new KeyFormatError('Öffentlicher Schlüssel hat falsche Länge');
+    throw new KeyFormatError('Public key has wrong length');
   }
   const prefix = spkiPrefixBytes();
   const spki = new Uint8Array(prefix.length + raw.length);

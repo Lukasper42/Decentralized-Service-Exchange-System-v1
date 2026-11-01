@@ -12,18 +12,18 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   text(h, 'Explorer');
   root.append(h);
   const note = el('p', 'derived-note');
-  text(note, 'Anzeige der lokal verifizierten Einträge; neueste zuerst, 50 pro Seite.');
+  text(note, 'Locally verified entries; newest first, 50 per page.');
   root.append(note);
 
   const controls = el('div');
   const typeLabel = el('label');
   typeLabel.htmlFor = 'f-type';
-  text(typeLabel, 'Event-Typ');
+  text(typeLabel, 'Event type');
   const typeSel = el('select');
   typeSel.id = 'f-type';
   const optAll = el('option');
   optAll.value = '';
-  text(optAll, 'alle');
+  text(optAll, 'all');
   typeSel.append(optAll);
   for (const t of EVENT_TYPES) {
     const o = el('option');
@@ -33,7 +33,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   }
   const pkLabel = el('label');
   pkLabel.htmlFor = 'f-pk';
-  text(pkLabel, 'Signer-Pubkey (exakt)');
+  text(pkLabel, 'Signer pubkey (exact)');
   const pkInput = el('input');
   pkInput.id = 'f-pk';
   pkInput.type = 'text';
@@ -45,10 +45,10 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   root.append(listEl);
   const pager = el('div');
   const btnPrev = el('button');
-  text(btnPrev, 'Ältere');
+  text(btnPrev, 'Older');
   const pageInfo = el('span');
   const btnNext = el('button');
-  text(btnNext, 'Neuere');
+  text(btnNext, 'Newer');
   pager.append(btnPrev, pageInfo, btnNext);
   root.append(pager);
 
@@ -78,11 +78,11 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   async function showDetail(entry: LedgerEntry): Promise<void> {
     detail.replaceChildren();
     const h3a = el('h3');
-    text(h3a, 'Event (kanonisch)');
+    text(h3a, 'Event (canonical)');
     const pre = el('pre');
     text(pre, canonical(entry.event));
     const h3b = el('h3');
-    text(h3b, 'Receipt (kanonisch)');
+    text(h3b, 'Receipt (canonical)');
     const pre2 = el('pre');
     text(pre2, canonical(entry.receipt));
     detail.append(h3a, pre, h3b, pre2);
@@ -93,11 +93,14 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     const relayPk = deps.store.get().relayPubkey ?? '';
     const recOk = relayPk === '' ? false : await verifyReceipt(browserCrypto, entry.receipt, relayPk);
     const li1 = el('li');
-    text(li1, `Event-Signatur: ${sigOk ? 'ja' : 'nein'}`);
+    text(li1, `Event signature: ${sigOk ? 'yes' : 'no'}`);
     const li2 = el('li');
-    text(li2, `Hash-Verknüpfung (eventHash): ${eh === entry.receipt.eventHash ? 'ja' : 'nein'} (${shortHash(eh)})`);
+    text(
+      li2,
+      `Hash link (eventHash): ${eh === entry.receipt.eventHash ? 'yes' : 'no'} (${shortHash(eh)})`,
+    );
     const li3 = el('li');
-    text(li3, `Receipt geprüft: ${recOk ? 'ja' : 'nein'} (receiptHash ${shortHash(rh)})`);
+    text(li3, `Receipt verified: ${recOk ? 'yes' : 'no'} (receiptHash ${shortHash(rh)})`);
     results.append(li1, li2, li3);
     detail.append(results);
   }
@@ -120,7 +123,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       li.append(btn);
       listEl.append(li);
     }
-    text(pageInfo, ` Seite ${page + 1} von ${pages} (${all.length} Einträge)`);
+    text(pageInfo, ` Page ${page + 1} of ${pages} (${all.length} entries)`);
     btnPrev.disabled = page >= pages - 1;
     btnNext.disabled = page <= 0;
   }

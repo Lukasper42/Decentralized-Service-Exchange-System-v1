@@ -44,20 +44,20 @@ export interface BlockState {
   transportError: boolean;
 }
 
-/** Nennt die tatsächlichen Gründe, warum Aktionen gesperrt sind (leer = nicht gesperrt). */
+/** Lists the actual reasons why actions are blocked (empty = not blocked). */
 export function blockedReasons(state: BlockState): string[] {
   const reasons: string[] = [];
   if (!state.unlocked) {
-    reasons.push('Schlüssel gesperrt');
+    reasons.push('key locked');
   }
   if (state.verifierBroken) {
-    reasons.push('Divergenz in der Kette');
+    reasons.push('chain divergence');
   }
   if (state.readOnly) {
-    reasons.push('Relay ist nur lesbar');
+    reasons.push('relay is read-only');
   }
   if (state.transportError) {
-    reasons.push('letzte Synchronisation fehlgeschlagen');
+    reasons.push('last sync failed');
   }
   return reasons;
 }

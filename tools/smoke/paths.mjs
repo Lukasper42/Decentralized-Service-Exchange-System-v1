@@ -1,4 +1,4 @@
-// Gemeinsame Pfade und Hilfen für die Rauchtests (Repo-Wurzel = zwei Ebenen über diesem Ordner).
+// Shared paths and helpers for the smoke tests (repo root = two levels above this folder).
 import { createRequire } from 'node:module';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +18,7 @@ export async function loadChromium() {
     try {
       return createRequire(import.meta.url)('playwright').chromium;
     } catch {
-      console.error('Playwright fehlt: im Repo-Wurzelordner "npm i --no-save playwright" und "npx playwright install chromium" ausführen.');
+      console.error('Playwright missing: run "npm i --no-save playwright" and "npx playwright install chromium" in the repo root.');
       process.exit(2);
     }
   }

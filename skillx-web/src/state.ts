@@ -82,7 +82,7 @@ export class Store {
     };
   }
 
-  /** Wie subscribe, ruft den Listener aber sofort mit dem aktuellen Zustand auf (Ansichten brauchen den Anfangszustand). */
+  /** Like subscribe, but calls the listener immediately with the current state (views need the initial state). */
   subscribeNow(listener: Listener): () => void {
     const unsubscribe = this.subscribe(listener);
     listener(this.state);

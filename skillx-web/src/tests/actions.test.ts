@@ -285,7 +285,7 @@ test('consentDeal: own pubkey is not seller -> STATE', async () => {
   assert.equal(relay.postCount, 0);
 });
 
-test('consentDeal: deal is not in state angelegt -> STATE', async () => {
+test('consentDeal: deal is not in state created -> STATE', async () => {
   const s = await setupPromise;
   const relay = makeRelay(s);
   const entries = [

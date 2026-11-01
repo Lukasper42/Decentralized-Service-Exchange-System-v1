@@ -6,10 +6,10 @@ import { consentDeal } from '../actions.js';
 export function render(root: HTMLElement, deps: Deps): () => void {
   root.replaceChildren();
   const h = el('h2');
-  text(h, 'Meine Deals');
+  text(h, 'My deals');
   root.append(h);
   const note = el('p', 'derived-note');
-  text(note, 'Abgeleitet, nicht autoritativ.');
+  text(note, 'Derived, not authoritative.');
   root.append(note);
   const msg = liveRegion();
   root.append(msg);
@@ -33,14 +33,14 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     text(
       hint,
       s.actionError
-        ? `Letzte Aktion fehlgeschlagen: ${formatError(s.actionError)}`
+        ? `Last action failed: ${formatError(s.actionError)}`
         : blocked
-          ? `Aktionen gesperrt: ${reasons.join('; ')}${syncDetail}.`
+          ? `Actions blocked: ${reasons.join('; ')}${syncDetail}.`
           : '',
     );
     const thead = el('thead');
     const hrow = el('tr');
-    for (const label of ['Deal-ID', 'Rolle', 'Betrag', 'Deadline', 'Zustand', 'Aktion']) {
+    for (const label of ['Deal ID', 'Role', 'Amount', 'Deadline', 'State', 'Action']) {
       const th = el('th');
       th.scope = 'col';
       text(th, label);
@@ -58,7 +58,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       const tr = el('tr');
       const values = [
         deal.deal_id,
-        deal.buyer === own ? 'Käufer' : 'Verkäufer',
+        deal.buyer === own ? 'Buyer' : 'Seller',
         formatAmount(deal.amount),
         formatIso(deal.deadline),
         deal.state,
@@ -69,14 +69,14 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         tr.append(td);
       }
       const tdAct = el('td');
-      if (own && deal.seller === own && deal.state === 'angelegt') {
+      if (own && deal.seller === own && deal.state === 'created') {
         const btn = el('button');
-        text(btn, 'Zustimmen');
+        text(btn, 'Consent');
         btn.disabled = blocked;
         btn.addEventListener('click', () => {
           const ctx = deps.makeActionContext();
           if (!ctx) {
-            text(msg, 'Aktion gesperrt.');
+            text(msg, 'Action blocked.');
             return;
           }
           void deps.runAction(consentDeal(ctx, deal.deal_id));
@@ -92,7 +92,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       const tr = el('tr');
       const td = el('td');
       td.colSpan = 6;
-      text(td, own ? 'Keine Deals für diesen Schlüssel.' : 'Zuerst Schlüssel entsperren.');
+      text(td, own ? 'No deals for this key.' : 'Unlock a key first.');
       tr.append(td);
       tbody.append(tr);
     }

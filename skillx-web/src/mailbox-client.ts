@@ -185,7 +185,7 @@ export class MailboxClient {
     if (!isKeyBundle(bundle)) {
       return err('FIELD_FORMAT', 'invalid key bundle response', path);
     }
-    // Ein Server darf kein fremdes Bündel unterschieben (sonst Mitlesen möglich).
+    // A server must not substitute a foreign bundle (otherwise eavesdropping is possible).
     let derived: string;
     try {
       derived = await computeMailboxId({ subtle: globalThis.crypto.subtle }, bundle.identity_pubkey);

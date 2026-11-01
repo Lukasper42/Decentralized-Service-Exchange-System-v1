@@ -36,7 +36,7 @@ export const RELAY_PUBKEY_KEY = 'skillx.relay.pubkey';
 const IDLE_LOCK_MS = 10 * 60 * 1000;
 const ROUTES = ['#/status', '#/identity', '#/account', '#/deals', '#/jury', '#/explorer', '#/messages'];
 
-// Globaler Zustand existiert bewusst nur in main.ts (kein Singleton in Modulen).
+// Global state deliberately exists only in main.ts (no singletons in modules).
 const store = new Store();
 
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -78,7 +78,7 @@ function notify(message: string | null, error: ApiError | null): void {
 async function runAction(result: Promise<ActionResult>): Promise<void> {
   const r = await result;
   if (r.ok) {
-    notify('Event gesendet und quittiert.', null);
+    notify('Event sent and acknowledged.', null);
     await synchronize();
   } else {
     notify(null, r.error);
@@ -221,7 +221,7 @@ function route(): void {
               ? renderExplorer
               : renderStatus;
   currentCleanup = target === '#/messages' ? renderMessages(root, messagesDeps) : renderer(root, deps);
-  // Polling alle 15 s; beim Verlassen der Ansicht zurückgebaut (siehe Cleanup oben).
+  // Polling every 15 s; torn down when leaving the view (see cleanup above).
   pollHandle = browserScheduler.every(15000, () => {
     void synchronize();
   });
@@ -244,7 +244,7 @@ function boot(): void {
     window.addEventListener(ev, resetIdleTimer);
   }
   route();
-  void formatError; // Format-Bibliothek bleibt für Fehlerdarstellung in den Ansichten verfügbar.
+  void formatError; // Format library stays available for error display in the views.
 }
 
 boot();

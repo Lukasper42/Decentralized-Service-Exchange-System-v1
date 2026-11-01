@@ -1,6 +1,6 @@
-export type Pubkey = string; // Base64 des Ed25519-SPKI-DER (44 Bytes)
-export type Hash = string; // 64 Zeichen lowercase hex
-export type Sig = string; // Base64 von 64 rohen Ed25519-Signaturbytes
+export type Pubkey = string; // Base64 of the Ed25519 SPKI DER (44 bytes)
+export type Hash = string; // 64 characters lowercase hex
+export type Sig = string; // Base64 of 64 raw Ed25519 signature bytes
 export type IsoUtc = string; // YYYY-MM-DDTHH:mm:ss.sssZ
 
 export type EventType =

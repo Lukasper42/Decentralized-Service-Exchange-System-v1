@@ -221,7 +221,7 @@ function b64ToArray(value: string): Uint8Array {
   return out;
 }
 
-test('client getKeyBundle lehnt ein untergeschobenes Bündel ab', async () => {
+test('client getKeyBundle rejects a substituted bundle', async () => {
   const identity = await makeIdentityPubkey();
   const other = await makeIdentityPubkey();
   const bundle: KeyBundle = {

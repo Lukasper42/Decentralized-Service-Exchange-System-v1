@@ -1,10 +1,10 @@
 export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
-/** Liest eine Antwort höchstens `max` Bytes lang; wirft bei Überschreitung. */
+/** Reads a response of at most `max` bytes; throws when exceeded. */
 export async function readCappedText(res: Response, max: number): Promise<string> {
   const declared = res.headers.get('content-length');
   if (declared !== null && Number(declared) > max) {
-    throw new Error('Antwort zu groß');
+    throw new Error('Response too large');
   }
   if (res.body === null) {
     return '';
@@ -21,7 +21,7 @@ export async function readCappedText(res: Response, max: number): Promise<string
     received += chunk.value.byteLength;
     if (received > max) {
       await reader.cancel();
-      throw new Error('Antwort zu groß');
+      throw new Error('Response too large');
     }
     out += decoder.decode(chunk.value, { stream: true });
   }

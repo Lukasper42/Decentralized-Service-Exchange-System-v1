@@ -3,20 +3,20 @@ import { deriveAccountTotals, type AmountKey } from '../project.js';
 import { formatAmount } from '../format.js';
 
 const LABELS: Record<AmountKey, string> = {
-  erhalten_ausgegeben: 'Erhalten (Währungsausgabe)',
-  erhalten_treasury: 'Erhalten (Treasury)',
-  erhalten_escrow: 'Erhalten (Escrow-Auszahlung)',
-  eingezahlt_escrow: 'Eingezahlt (Escrow)',
-  berufungsgebuehren: 'Berufungsgebühren',
+  received_issued: 'Received (currency issuance)',
+  received_treasury: 'Received (treasury)',
+  received_escrow: 'Received (escrow payout)',
+  deposited_escrow: 'Deposited (escrow)',
+  appeal_fees: 'Appeal fees',
 };
 
 export function render(root: HTMLElement, deps: Deps): () => void {
   root.replaceChildren();
   const h = el('h2');
-  text(h, 'Konto');
+  text(h, 'Account');
   root.append(h);
   const note = el('p', 'derived-note');
-  text(note, 'Abgeleitete Summen aus der verifizierten Kette – keine autoritativen Salden.');
+  text(note, 'Totals derived from the verified chain – not authoritative balances.');
   root.append(note);
   const table = el('table');
   root.append(table);
@@ -25,7 +25,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     table.replaceChildren();
     if (!s.ownPubkey || !s.verifier) {
       const p = el('p');
-      text(p, 'Kein Schlüssel entsperrt.');
+      text(p, 'No key unlocked.');
       table.append(p);
       return;
     }
@@ -44,9 +44,9 @@ export function render(root: HTMLElement, deps: Deps): () => void {
     const trRep = el('tr');
     const thRep = el('th');
     thRep.scope = 'row';
-    text(thRep, 'Reputationssumme (ohne Zerfall)');
+    text(thRep, 'Reputation total (without decay)');
     const tdRep = el('td');
-    text(tdRep, totals.reputation === 'Überlauf' ? 'Überlauf' : String(totals.reputation));
+    text(tdRep, totals.reputation === 'overflow' ? 'overflow' : String(totals.reputation));
     trRep.append(thRep, tdRep);
     tbody.append(trRep);
     table.append(tbody);

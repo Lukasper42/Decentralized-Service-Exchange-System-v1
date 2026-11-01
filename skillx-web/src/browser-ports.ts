@@ -11,7 +11,7 @@ import type {
 } from './ports.js';
 import type { IsoUtc } from './types.js';
 
-// Einzige Stelle im Projekt, die Datum/Zeit und Zufall erzeugt (siehe Vorgabe).
+// The only place in the project that produces date/time and randomness (per the spec).
 
 function pad(n: number, len: number): string {
   return String(n).padStart(len, '0');
@@ -70,14 +70,14 @@ export const browserStorage: StoragePort = {
     try {
       localStorage.setItem(key, value);
     } catch {
-      /* Speicher nicht verfügbar: Wert bleibt nur im Prozesszustand */
+      /* Storage unavailable: value stays in process state only */
     }
   },
   remove(key: string): void {
     try {
       localStorage.removeItem(key);
     } catch {
-      /* ignorieren */
+      /* ignore */
     }
   },
 };

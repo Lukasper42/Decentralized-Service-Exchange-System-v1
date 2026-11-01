@@ -405,9 +405,9 @@ const SEED_DOMAIN = 'skillx/v1/mailbox-x25519-seed\n';
 const SEED_INFO = 'skillx/v1/mailbox-x25519';
 
 /**
- * Leitet den X25519-Nachrichtenschlüssel deterministisch aus der Ed25519-Identität ab
- * (Ed25519-Signaturen sind deterministisch). Damit ist nichts zusätzlich zu speichern,
- * und der Schlüssel ist auf jedem Gerät mit derselben Identität wiederherstellbar.
+ * Derives the X25519 messaging key deterministically from the Ed25519 identity
+ * (Ed25519 signatures are deterministic). Nothing extra needs to be stored,
+ * and the key is recoverable on every device with the same identity.
  */
 export async function deriveMessagingKey(
   port: CryptoPort,

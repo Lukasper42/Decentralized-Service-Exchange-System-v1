@@ -16,7 +16,7 @@ const random = {
 };
 const clock = { nowMs: (): number => 0, nowIso: (): string => '2026-01-01T00:00:00.000Z' };
 
-test('deriveMessagingKey ist deterministisch und von der Identität abhängig', async () => {
+test('deriveMessagingKey is deterministic and depends on the identity', async () => {
   const a = await generateKeyPair(port);
   const b = await generateKeyPair(port);
   const keyA = await importNonExtractablePrivate(port, a.privateKeyPkcs8);
@@ -29,7 +29,7 @@ test('deriveMessagingKey ist deterministisch und von der Identität abhängig', 
   assert.notEqual(first.value.xPubkey, other.value.xPubkey);
 });
 
-test('abgeleiteter Schlüssel: seal/open Roundtrip', async () => {
+test('derived key: seal/open roundtrip', async () => {
   const alice = await generateKeyPair(port);
   const bob = await generateKeyPair(port);
   const aliceKey = await importNonExtractablePrivate(port, alice.privateKeyPkcs8);
@@ -41,15 +41,15 @@ test('abgeleiteter Schlüssel: seal/open Roundtrip', async () => {
     from: alice.publicKey,
     edKey: aliceKey,
     recipientBundle: bundle,
-    body: 'Hallo Bob'
+    body: 'Hello Bob'
   });
   assert.ok(sealed.ok);
   const bobId = await mailboxId(port, bob.publicKey);
   const opened = await openMessage(port, bobId, bobX.value.xPrivatePkcs8, sealed.value);
   assert.ok(opened.ok);
-  assert.equal(opened.value.body, 'Hallo Bob');
+  assert.equal(opened.value.body, 'Hello Bob');
   assert.equal(opened.value.from, alice.publicKey);
-  // Ein Dritter kann nicht öffnen
+  // A third party cannot open it
   const eveX = await deriveMessagingKey(port, aliceKey);
   assert.ok(eveX.ok);
   const wrong = await openMessage(port, bobId, eveX.value.xPrivatePkcs8, sealed.value);
