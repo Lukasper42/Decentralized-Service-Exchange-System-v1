@@ -9,3 +9,5 @@ b-key.json
 genesis.json
 genesis-config.json
 skillx-vault.json
+extra-keys.json
+multisig-keys.json

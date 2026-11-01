@@ -28,12 +28,31 @@ Relay in memory mode (RELAY_MODE=memory): everything is gone after a restart.
 5. Explorer: entries are pageable, hashes visible.
 6. Deal: export the vault in the UI (Identity, Export), then in the folder skill-exchange-ledger: `node ../tools/manual/deal-test.mjs "<pubkey>" "$HOME\Downloads\skillx-vault.json" '<password>'` (creates accounts and a deal, password in single quotes); the deal is visible in the Deals view.
 7. consentDeal: unlock the key, in Deals click "Consent" on the deal as seller (state changes to consented) -> the entry appears, the chain stays verified.
-8. castVote: only useful with an assigned jury; otherwise skip and note it.
+8. castVote (needs a relay with a test genesis, jury thresholds 0, for this test only). Stop the relay (`Get-NetTCPConnection -LocalPort 3000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`), then in the folder skill-exchange-ledger:
+   ```
+   Remove-Item genesis.json, genesis-config.json, b-key.json, extra-keys.json, multisig-keys.json -ErrorAction SilentlyContinue
+   node ../tools/manual/make-tester-genesis.mjs --open-jury --extra-keys 4 --inviter "<UI pubkey>" --relay-public-key "<public_key from keygen>"
+   ```
+   Replace the two values in quotes (without the angle brackets). Start the relay as in step A.6 with the new `GENESIS_SHA256` (printed by the script). In the UI: Status, "Reset remembered chain state" (the chain is new), then "Save and connect". Export the vault again (Identity, Export), then:
+   ```
+   node ../tools/manual/jury-test.mjs setup "<UI pubkey>" "$HOME\Downloads\skillx-vault.json" '<password>'
+   ```
+   Expectation: all lines `OK`, last line "Next: in the UI ...". In the UI: unlock the key (Identity), open Jury, the case is listed, click "Buyer". Then:
+   ```
+   node ../tools/manual/jury-test.mjs finish "<UI pubkey>" "$HOME\Downloads\skillx-vault.json" '<password>'
+   ```
+   Expectation: all lines `OK` including `DisputeResolved (2:1 buyer)`. Send back: the output of both runs, and what the Jury view showed after your vote.
 9. Error cases: wrong relay URL (http://example.com is rejected), relay off (understandable message), wrong ALLOWED_ORIGIN (CORS error visible).
-10. Messages (optional, second terminal): skillx-mailbox with `$env:ALLOWED_ORIGIN="http://127.0.0.1:8080"; npm start`; set the mailbox URL, publish the key bundle, send to a second identity, fetch.
+10. Messages (no genesis needed; two identities = two browser profiles). Second terminal, folder skillx-mailbox: `npm run build`, then `$env:ALLOWED_ORIGIN="http://127.0.0.1:8080"; $env:PORT="8787"; npm start`. Expectation: `curl http://127.0.0.1:8787/v1/health` returns 200.
+    - Profile 1 (your normal browser): open http://127.0.0.1:8080, Identity: unlock the key. Messages: mailbox URL `http://127.0.0.1:8787`, "Save URL", "Publish key bundle". Expectation: "Key bundle published (...)".
+    - Profile 2 (a second browser profile or a private window; it has its own storage): open the same address, Identity: create a key (password >= 16 characters), unlock, copy its pubkey (the code line). Messages: same mailbox URL, "Save URL", "Publish key bundle".
+    - In profile 2: recipient = pubkey of profile 1, type a text, "Send". Expectation: "Sent ...".
+    - In profile 1: "Fetch inbox". Expectation: the text is decrypted and shows the sender pubkey. "Delete", then "Fetch inbox": empty.
+    - Error cases: a valid pubkey that has no bundle gives "Recipient has not published a key bundle yet ..."; text instead of a pubkey gives "Invalid recipient pubkey".
+    Send back: per bullet ok/error and the exact status text.
 
 ## D. Already verified in the sandbox (2026-10-29, Chromium, relay in memory mode)
-C1-C7 and C9 ok (status/sync, explorer, unlock including wrong password, account, deals, consentDeal, rollback detection after relay restart, pin reset, relay off, http://example.com rejected). Found and fixed along the way: the relay did not answer the CORS preflight (OPTIONS), so every POST from the browser failed; views stayed empty until the next poll (15 s). C10 (messages, two browser profiles, mailbox on 127.0.0.1:8787) ok: key bundle, send, decrypt, delete; an unknown recipient gives "Recipient has not published a key bundle yet ...". castVote ok with a test genesis (jury thresholds set to 0, for the test only): dispute, 3 jurors (one of them the UI), vote in the UI, resolution 2:1. Not verified with the real beta policy (20 deals, 5 counterparties, 60 days). Not verified: Windows/real browser.
+C1-C7 and C9 ok (status/sync, explorer, unlock including wrong password, account, deals, consentDeal, rollback detection after relay restart, pin reset, relay off, http://example.com rejected). Found and fixed along the way: the relay did not answer the CORS preflight (OPTIONS), so every POST from the browser failed; views stayed empty until the next poll (15 s). C10 (messages, two browser profiles, mailbox on 127.0.0.1:8787) ok: key bundle, send, decrypt, delete; an unknown recipient gives "Recipient has not published a key bundle yet ...". castVote ok with a test genesis (jury thresholds set to 0, for the test only): dispute, 3 jurors (one of them the UI), vote in the UI, resolution 2:1. Not verified with the real beta policy (20 deals, 5 counterparties, 60 days). Not verified: Windows/real browser. The jury test also runs as manual scripts (tools/manual/jury-test.mjs, checked against a real relay in the sandbox).
 
 ## E. Result
 Per checkpoint ok/error; on error: send the console (F12) and the relay output to Claude.
