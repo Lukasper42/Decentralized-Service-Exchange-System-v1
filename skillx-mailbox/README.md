@@ -1,19 +1,19 @@
 # skillx-mailbox
 
-Postfach-Server für das Protokoll `skillx-mailbox v1` (siehe Spezifikation im Prompt/Repo).
+Mailbox server for the `skillx-mailbox v1` protocol.
 
-Der Server speichert selbst-signierte KeyBundles und Ende-zu-Ende-verschlüsselte Envelopes. Er sieht weder Absender noch Inhalt der Nachrichten und ist kein Ledger-Teilnehmer.
+The server stores self-signed key bundles and end-to-end encrypted envelopes. It sees neither the sender nor the content of messages and is not a ledger participant.
 
 ## Start
     npm run build
     ALLOWED_ORIGIN=https://example.org PORT=8787 npm start
 
-- Bindet ausschließlich an 127.0.0.1 (Betrieb hinter Tor-Onion-Service oder Reverse-Proxy).
-- Persistenz: data/mailbox.json (atomar über tmp-Datei + rename).
-- ALLOWED_ORIGIN ist Pflicht (Access-Control-Allow-Origin).
-- Keine Logs mit IP, Pfaden, Headern oder Schlüsseln.
+- Binds to 127.0.0.1 only (run behind a Tor onion service or a reverse proxy).
+- Persistence: data/mailbox.json (atomic via temp file + rename).
+- ALLOWED_ORIGIN is required (Access-Control-Allow-Origin).
+- No logs containing IPs, paths, headers or keys.
 
-## Skripte
-- npm run build: TypeScript kompilieren
-- npm test: kompilieren und Tests ausführen
-- npm start: Server starten
+## Scripts
+- npm run build: compile TypeScript
+- npm test: compile and run the tests
+- npm start: start the server

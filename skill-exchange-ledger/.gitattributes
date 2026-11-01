@@ -1,2 +1,2 @@
-# Das vendorte Wortverzeichnis muss byte-genau bleiben (SHA-256-Prüfung), auch unter Windows mit core.autocrlf.
+# The vendored word list must stay byte-exact (SHA-256 check), also on Windows with core.autocrlf.
 packages/keystore/data/*.txt text eol=lf

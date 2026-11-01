@@ -1,4 +1,4 @@
-// Lokaler statischer Server für skillx-web. Keine Abhängigkeiten, nur 127.0.0.1.
+// Local static server for skillx-web. No dependencies, 127.0.0.1 only.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize, sep } from 'node:path';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] ?? process.env.PORT ?? 8080);
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
-  console.error('Ungültiger Port.');
+  console.error('Invalid port.');
   process.exit(1);
 }
 const TYPES = new Map([
@@ -54,5 +54,5 @@ createServer(async (req, res) => {
     res.writeHead(404, HEADERS).end('Nicht gefunden');
   }
 }).listen(PORT, '127.0.0.1', () => {
-  console.log(`skillx-web läuft auf http://127.0.0.1:${PORT}`);
+  console.log(`skillx-web running on http://127.0.0.1:${PORT}`);
 });

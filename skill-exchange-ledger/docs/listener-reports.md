@@ -1,29 +1,29 @@
-# Listener-Berichte (off-ledger)
+# Listener reports (off-ledger)
 
-Befunde des Circular-Trading-Listeners gehen NICHT aufs Ledger (Entscheidung 6, Protokoll v1 bleibt eingefroren). Sie werden als signierte Berichte an den Relay gesendet, dort geprüft und lokal gespeichert. Es entstehen weder Event-Typen noch Fehlercodes noch Attestation-Arten.
+Findings of the circular-trading listener do NOT go on the ledger (decision 6; protocol v1 stays frozen). They are sent to the relay as signed reports, validated there and stored locally. No event types, error codes or attestation kinds are added.
 
-## Bericht (report_version 1)
+## Report (report_version 1)
 
-Felder (alle Pflicht, keine weiteren): `report_version` (1), `rule_id` (`circular-trading-pair`), `account_a`, `account_b` (kanonische Reihenfolge, UTF-8-Bytevergleich, a < b), `forward` und `reverse` je `{deal_id, release_event_hash, sequence, amount, accepted_at}`, `through_sequence`, `through_receipt_hash`, `finding_id`, `listener_pubkey`, `created_at`, `signature`.
+Fields (all required, no others): `report_version` (1), `rule_id` (`circular-trading-pair`), `account_a`, `account_b` (canonical order, UTF-8 byte comparison, a < b), `forward` and `reverse`, each `{deal_id, release_event_hash, sequence, amount, accepted_at}`, `through_sequence`, `through_receipt_hash`, `finding_id`, `listener_pubkey`, `created_at`, `signature`.
 
-- `finding_id` = SHA-256 über kanonisches JSON von Regel, Kontopaar und beiden Release-Hashes. `through_sequence` gehört bewusst nicht dazu, damit derselbe Befund bei späterer Erkennung dieselbe Identität behält.
-- Signatur: Ed25519 des Listener-Schlüssels über `skillx/v1/listener-report\n` + kanonisches JSON des Berichts ohne `signature`.
-- Berichte enthalten nur Referenzen und Hashes, keine Ledger-Events.
+- `finding_id` = SHA-256 over the canonical JSON of the rule, the account pair and both release hashes. `through_sequence` is deliberately not part of it, so the same finding keeps its identity when it is detected later.
+- Signature: Ed25519 by the listener key over `skillx/v1/listener-report\n` + the canonical JSON of the report without `signature`.
+- Reports contain only references and hashes, no ledger events.
 
 ## Endpoint
 
-`POST /v1/reports` (nur wenn aktiviert, sonst 404). Prüfreihenfolge: Form, Allowlist (Schlüssel und Bereich `through_sequence`), `finding_id`, Signatur. Antworten: 201 neu, 200 Duplikat, 400 ungültig, 403 Schlüssel nicht berechtigt, 413/429/503 wie bei `/v1/events`. Gleichzeitige Duplikate werden serialisiert: genau ein 201.
+`POST /v1/reports` (only when enabled, otherwise 404). Check order: shape, allowlist (key and `through_sequence` range), `finding_id`, signature. Responses: 201 new, 200 duplicate, 400 invalid, 403 key not authorized, 413/429/503 as for `/v1/events`. Concurrent duplicates are serialized: exactly one 201.
 
-## Aktivierung (Umgebungsvariablen)
+## Activation (environment variables)
 
-- `LISTENER_ALLOWLIST_FILE`: JSON-Array `[{"pubkey","valid_from_sequence","valid_to_sequence"}]`.
-- `REPORT_OUTBOX_FILE`: NDJSON-Datei für angenommene Berichte. Beide Variablen müssen zusammen gesetzt sein, sonst bricht der Start ab.
-- `REPORT_DELIVERY_URL` (optional): http(s)-Endpoint, der jeden gespeicherten Bericht per POST (JSON) erhält. Ohne sie werden Berichte nur gespeichert.
+- `LISTENER_ALLOWLIST_FILE`: JSON array `[{"pubkey","valid_from_sequence","valid_to_sequence"}]`.
+- `REPORT_OUTBOX_FILE`: NDJSON file for accepted reports. Both variables must be set together, otherwise startup fails.
+- `REPORT_DELIVERY_URL` (optional): http(s) endpoint that receives every stored report via POST (JSON). Without it, reports are only stored.
 
-## Zuverlässigkeit
+## Reliability
 
-Erst anhängen, dann zustellen. Unlesbare oder abgeschnittene Zeilen werden beim Laden übersprungen und gefährden die Idempotenz nicht. `<REPORT_OUTBOX_FILE>.done` hält zugestellte oder dauerhaft abgelehnte Berichte fest. Alles andere wird nach einem Neustart erneut zugestellt (at-least-once). Zustellung: 2xx geliefert; 408, 425, 429, 5xx und Netzwerkfehler werden mit exponentiellem Backoff (5 Versuche) wiederholt; andere 4xx sind endgültig; Weiterleitungen werden abgelehnt. Die Empfangsseite muss Duplikate anhand `finding_id` vertragen.
+Append first, then deliver. Unreadable or truncated lines are skipped on load and do not endanger idempotency. `<REPORT_OUTBOX_FILE>.done` records reports that were delivered or permanently refused. Everything else is delivered again after a restart (at-least-once). Delivery: 2xx is delivered; 408, 425, 429, 5xx and network errors are retried with exponential backoff (5 attempts); other 4xx are final; redirects are refused. The receiving side must tolerate duplicates by `finding_id`.
 
-## Grenzen
+## Limits
 
-Der Relay prüft nicht, ob `through_receipt_hash` zur Sequenz passt. Allowlist-Wechsel erfolgen außerhalb des Ledgers (Datei, Neustart nötig).
+The relay does not check that `through_receipt_hash` matches the sequence. Allowlist changes happen outside the ledger (file, restart required).
