@@ -39,7 +39,7 @@ function putBundle(base: string, mailboxId: string, bundle: KeyBundle): Promise<
   });
 }
 
-test('gültiges KeyBundle wird gespeichert und ist öffentlich lesbar', async () => {
+test('valid KeyBundle is stored and publicly readable', async () => {
   const env = await setup();
   try {
     const signer = await makeSigner();
@@ -61,7 +61,7 @@ test('gültiges KeyBundle wird gespeichert und ist öffentlich lesbar', async ()
   }
 });
 
-test('ungültige Signatur, falsche MailboxId und ältere created_at werden abgelehnt', async () => {
+test('invalid signature, wrong MailboxId and older created_at are rejected', async () => {
   const env = await setup();
   try {
     const signer = await makeSigner();
@@ -85,7 +85,7 @@ test('ungültige Signatur, falsche MailboxId und ältere created_at werden abgel
   }
 });
 
-test('POST ohne vorhandenes KeyBundle liefert 404', async () => {
+test('POST without an existing KeyBundle returns 404', async () => {
   const env = await setup();
   try {
     const unknownId = 'a'.repeat(64);
@@ -100,7 +100,7 @@ test('POST ohne vorhandenes KeyBundle liefert 404', async () => {
   }
 });
 
-test('POST/GET-Roundtrip mit Auth und DELETE', async () => {
+test('POST/GET round trip with auth and DELETE', async () => {
   const env = await setup();
   try {
     const signer = await makeSigner();
@@ -155,7 +155,7 @@ test('POST/GET-Roundtrip mit Auth und DELETE', async () => {
   }
 });
 
-test('fehlende, abgelaufene und fremde Auth liefern 401', async () => {
+test('missing, expired and foreign auth return 401', async () => {
   const env = await setup();
   try {
     const signer = await makeSigner();
@@ -185,7 +185,7 @@ test('fehlende, abgelaufene und fremde Auth liefern 401', async () => {
   }
 });
 
-test('zu großer Body liefert 413', async () => {
+test('oversized body returns 413', async () => {
   const env = await setup();
   try {
     const signer = await makeSigner();
@@ -202,7 +202,7 @@ test('zu großer Body liefert 413', async () => {
   }
 });
 
-test('OPTIONS-Preflight wird korrekt beantwortet', async () => {
+test('OPTIONS preflight is answered correctly', async () => {
   const env = await setup();
   try {
     const res = await fetch(`${env.base}/v1/keys/${'b'.repeat(64)}`, { method: 'OPTIONS' });
@@ -216,7 +216,7 @@ test('OPTIONS-Preflight wird korrekt beantwortet', async () => {
   }
 });
 
-test('GET /v1/health liefert ok', async () => {
+test('GET /v1/health returns ok', async () => {
   const env = await setup();
   try {
     const res = await fetch(`${env.base}/v1/health`);
@@ -229,7 +229,7 @@ test('GET /v1/health liefert ok', async () => {
   }
 });
 
-test('unbekannter Pfad liefert 404, falsche Methode 405', async () => {
+test('unknown path returns 404, wrong method 405', async () => {
   const env = await setup();
   try {
     const notFound = await fetch(`${env.base}/v1/nope`);
@@ -243,7 +243,7 @@ test('unbekannter Pfad liefert 404, falsche Methode 405', async () => {
   }
 });
 
-test('MailboxId im Pfad muss zum Identity-Pubkey passen', async () => {
+test('MailboxId in the path must match the identity pubkey', async () => {
   const env = await setup();
   try {
     const signer = await makeSigner();

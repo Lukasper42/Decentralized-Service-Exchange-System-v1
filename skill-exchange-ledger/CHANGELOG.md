@@ -6,13 +6,13 @@
 - Off-ledger circular-trading reports (`POST /v1/reports`, report schema v1, domain prefix `skillx/v1/listener-report`): receiver with strict validation, listener allowlist (checked before the signature), idempotency by `finding_id`, durable NDJSON outbox that survives torn lines, `.done` markers and replay after restart (at-least-once), optional HTTP delivery (`REPORT_DELIVERY_URL`). Enabled only when `LISTENER_ALLOWLIST_FILE` and `REPORT_OUTBOX_FILE` are set. No ledger events, no protocol change.
 
 ## 2026-10-24
-- Doku bereinigt (README, architecture, threat-model, code-follow-up, open-questions, protocol-v1 Rotation und kleiner Pool, keystore-spec). Entscheidungen: Treasury-Multisig 2-von-3 für die Beta, Juror-Auszahlung nur bis Treasury-Guthaben, Treasury nur über `genesisAccounting`, Listener-Befunde nicht auf dem Ledger.
-- Tooling: CI-Workflow, ESLint-Konfiguration, Postgres-Integrationstests (`TEST_DATABASE_URL`); Windows: Verzeichnis-fsync übersprungen, Symlink-Test überspringt bei EPERM.
-- Relay: asynchroner Schreibpfad (`submitAsync`, `startAsync`, `closeAsync`), `PostgresStore` (Port `SqlPort`, Migration 1, Advisory-Lock, append-only Trigger), `DealCreated` verlangt registrierte Parteien.
-- Client: `keyStatus` und lokale Prüfung der Gegenpartei vor `DealCreated` (rotierte/eingefrorene Schlüssel).
-- Betrieb: `apps/relay/main.ts` (Konfiguration über Umgebungsvariablen, Genesis mit SHA-256-Pin, Relay-Key-Datei 0600, `TRUSTED_PROXIES` fuer Rate-Limit hinter Proxy), `apps/relay/admin-cli.ts` (keygen, genesis build/hash), `apps/node-ports/pg-sql-port.ts`.
-- `packages/listener`: Erkennung von Kreishandel (nur Lesezugriff, kein neuer Event-Typ).
-- Tests: E2E `JurorReplaced` und Fallback-Tiers. Stand: 345 Tests, 344 grün, 1 übersprungen (BIP39-Wortliste).
+- Docs cleaned up (README, architecture, threat-model, code-follow-up, open-questions, protocol-v1 rotation and small pool, keystore-spec). Decisions: treasury multisig 2-of-3 for the beta, juror payout only up to the treasury balance, treasury funded only via `genesisAccounting`, listener findings not on the ledger.
+- Tooling: CI workflow, ESLint configuration, Postgres integration tests (`TEST_DATABASE_URL`); Windows: directory fsync skipped, symlink test skips on EPERM.
+- Relay: asynchronous write path (`submitAsync`, `startAsync`, `closeAsync`), `PostgresStore` (port `SqlPort`, migration 1, advisory lock, append-only trigger), `DealCreated` requires registered parties.
+- Client: `keyStatus` and a local check of the counterparty before `DealCreated` (rotated/frozen keys).
+- Operations: `apps/relay/main.ts` (configuration via environment variables, genesis with SHA-256 pin, relay key file 0600, `TRUSTED_PROXIES` for rate limiting behind a proxy), `apps/relay/admin-cli.ts` (keygen, genesis build/hash), `apps/node-ports/pg-sql-port.ts`.
+- `packages/listener`: circular-trading detection (read-only, no new event type).
+- Tests: E2E `JurorReplaced` and fallback tiers. Status: 345 tests, 344 passing, 1 skipped (BIP39 word list).
 
 ## Pre-release revision 2
 

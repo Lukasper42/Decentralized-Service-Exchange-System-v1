@@ -15,7 +15,7 @@ import {
 const T0 = 1_700_000_000_000;
 const ISO0 = new Date(T0).toISOString();
 
-test('Limit von 200 Nachrichten wird durchgesetzt', async () => {
+test('limit of 200 messages is enforced', async () => {
   const clock = new FakeClock(T0);
   const store = await MailboxStore.load({ clock, random: testRandom, file: new MemoryFile() });
   const signer = await makeSigner();
@@ -34,7 +34,7 @@ test('Limit von 200 Nachrichten wird durchgesetzt', async () => {
   );
 });
 
-test('TTL löscht Nachrichten nach 14 Tagen', async () => {
+test('TTL deletes messages after 14 days', async () => {
   const clock = new FakeClock(T0);
   const store = await MailboxStore.load({ clock, random: testRandom, file: new MemoryFile() });
   const signer = await makeSigner();
@@ -51,7 +51,7 @@ test('TTL löscht Nachrichten nach 14 Tagen', async () => {
   assert.equal(after.messages.length, 0);
 });
 
-test('Persistenz-Roundtrip über StoreFilePort', async () => {
+test('persistence round trip via StoreFilePort', async () => {
   const clock = new FakeClock(T0);
   const file = new MemoryFile();
   const signer = await makeSigner();
@@ -71,7 +71,7 @@ test('Persistenz-Roundtrip über StoreFilePort', async () => {
   assert.deepEqual(listed.messages[0]?.envelope, envelope);
 });
 
-test('DELETE entfernt Nachricht, unbekannte ID liefert false', async () => {
+test('DELETE removes the message, unknown ID returns false', async () => {
   const clock = new FakeClock(T0);
   const store = await MailboxStore.load({ clock, random: testRandom, file: new MemoryFile() });
   const signer = await makeSigner();
@@ -85,7 +85,7 @@ test('DELETE entfernt Nachricht, unbekannte ID liefert false', async () => {
   assert.equal(listed.messages.length, 0);
 });
 
-test('seq steigt weiter, auch wenn das Postfach zwischendurch leer war', async () => {
+test('seq keeps increasing even when the mailbox was empty in between', async () => {
   const clock = new FakeClock(T0);
   const store = await MailboxStore.load({ clock, random: testRandom, file: new MemoryFile() });
   const signer = await makeSigner();
@@ -100,7 +100,7 @@ test('seq steigt weiter, auch wenn das Postfach zwischendurch leer war', async (
   assert.equal(listed.messages[0]?.seq, 2);
 });
 
-test('seq bleibt nach Neustart erhalten', async () => {
+test('seq is preserved after restart', async () => {
   const clock = new FakeClock(T0);
   const file = new MemoryFile();
   const signer = await makeSigner();

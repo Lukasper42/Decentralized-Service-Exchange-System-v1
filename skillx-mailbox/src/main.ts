@@ -45,7 +45,7 @@ function isErrnoCode(err: unknown, code: string): boolean {
 async function main(): Promise<void> {
   const origin = process.env['ALLOWED_ORIGIN'];
   if (origin === undefined || origin.length === 0) {
-    console.error('skillx-mailbox: ALLOWED_ORIGIN ist nicht gesetzt');
+    console.error('skillx-mailbox: ALLOWED_ORIGIN is not set');
     process.exitCode = 1;
     return;
   }
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   const portRaw = process.env['PORT'] ?? '8787';
   const port = Number(portRaw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    console.error('skillx-mailbox: ungültiger PORT');
+    console.error('skillx-mailbox: invalid PORT');
     process.exitCode = 1;
     return;
   }

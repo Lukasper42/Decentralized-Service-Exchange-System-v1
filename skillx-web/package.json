@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Eigenständige Web-UI für das SkillX-Ledger (TypeScript, ohne Framework)",
+  "description": "Standalone web UI for the SkillX ledger (TypeScript, no framework)",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node serve.mjs",

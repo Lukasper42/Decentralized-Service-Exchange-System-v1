@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "SkillX: Ledger, Web-UI und Postfach in einem Repository",
+  "description": "SkillX: ledger, web UI and mailbox in one repository",
   "scripts": {
     "build": "npm --prefix skill-exchange-ledger run build && npm --prefix skillx-web run build && npm --prefix skillx-mailbox run build",
     "test": "npm --prefix skill-exchange-ledger test && npm --prefix skillx-web test && npm --prefix skillx-mailbox test",

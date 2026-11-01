@@ -1,15 +1,15 @@
-# SkillX (ein Projekt, drei Pakete)
+# SkillX (one project, three packages)
 
-- skill-exchange-ledger/  Ledger, Relay, Listener (Protokoll v1, eingefroren)
-- skillx-web/             Browser-UI (Relay-Client, Nachrichten)
-- skillx-mailbox/         Postfach-Server für Ende-zu-Ende-Nachrichten
+- skill-exchange-ledger/  Ledger, relay, listener (protocol v1, frozen)
+- skillx-web/             Browser UI (relay client, messages)
+- skillx-mailbox/         Mailbox server for end-to-end encrypted messages
 
-Lizenz: MIT (LICENSE im Wurzelordner und in jedem Paket). CI: .github/workflows/ci.yml (ein Job je Paket, Branch master).
+License: MIT (LICENSE in the root folder and in each package). CI: .github/workflows/ci.yml (one job per package, branch master).
 
-Jedes Paket einzeln: npm install, npm run build, npm test. Alles zusammen im Wurzelordner: npm run build, npm test (Pakete vorher einzeln installieren). Lokal starten:
-- Ledger-Relay: siehe skill-exchange-ledger/README.md
-- Web-UI: cd skillx-web && npm run build && npm start (http://127.0.0.1:8080)
-- Postfach: cd skillx-mailbox && npm run build && ALLOWED_ORIGIN=http://127.0.0.1:8080 npm start
+Each package on its own: npm install, npm run build, npm test. Everything together in the root folder: npm run build, npm test (install the packages individually first). Run locally:
+- Ledger relay: see skill-exchange-ledger/README.md
+- Web UI: cd skillx-web && npm run build && npm start (http://127.0.0.1:8080)
+- Mailbox: cd skillx-mailbox && npm run build && ALLOWED_ORIGIN=http://127.0.0.1:8080 npm start
 
-Rauchtests (Browser und echte Prozesse): tools/smoke/README.md (`npm run smoke`).
-Listener-Berichte (off-ledger): skill-exchange-ledger/docs/listener-reports.md.
+Smoke tests (browser and real processes): tools/smoke/README.md (`npm run smoke`).
+Listener reports (off-ledger): skill-exchange-ledger/docs/listener-reports.md.
