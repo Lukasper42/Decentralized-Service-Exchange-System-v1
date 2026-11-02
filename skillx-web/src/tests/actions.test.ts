@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { consentDeal, castVote } from '../actions.js';
+import { consentDeal, castVote, createAccount, createDeal } from '../actions.js';
 import { RelayClient } from '../relay-client.js';
 import {
   generateKeyPair,
@@ -15,7 +15,9 @@ import {
 
 import type { ActionContext } from '../actions.js';
 import type { ChainVerifier } from '../verify.js';
-import type { CryptoPort, FetchPort } from '../ports.js';
+import type { CryptoPort, FetchPort, RandomPort, StoragePort } from '../ports.js';
+import { criteriaCommitment, loadDealSecrets } from '../create-actions.js';
+import { hexToBytesLower } from '../crypto.js';
 import type {
   LedgerEntry,
   SignedEvent,
@@ -927,5 +929,209 @@ test('castVote: tip fetch throws -> TRANSPORT', async () => {
 
   const r = await castVote(ctx, 'deal-1', 'buyer');
   expectError(r, 'TRANSPORT');
+  assert.equal(relay.postCount, 0);
+});
+function memoryStorage(): StoragePort & { map: Map<string, string> } {
+  const map = new Map<string, string>();
+  return {
+    map,
+    get: (k) => map.get(k) ?? null,
+    set: (k, v) => {
+      map.set(k, v);
+    },
+    remove: (k) => {
+      map.delete(k);
+    },
+  };
+}
+
+const countingRandom: RandomPort = {
+  bytes(n) {
+    return new Uint8Array(n).map((_, i) => (i * 7 + n) & 0xff);
+  },
+};
+
+function accountEntry(pubkey: Pubkey, seq: number): LedgerEntry {
+  return makeEntry(pubkey, seq, 'AccountCreated', {
+    pubkey,
+    recovery_commitment: '2'.repeat(64),
+    invite_ref: null,
+  });
+}
+
+test('createAccount: posts a signed AccountCreated for the own key', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: [],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  const r = await createAccount(ctx);
+  assert.equal(r.ok, true);
+  assert.equal(relay.postCount, 1);
+  const posted = relay.lastPosted;
+  assert.ok(posted !== null);
+  assert.equal(posted.type, 'AccountCreated');
+  assert.equal(posted.signer, s.ownKp.publicKey);
+  assert.deepEqual(Object.keys(posted.payload).sort(), ['invite_ref', 'pubkey', 'recovery_commitment']);
+  assert.equal(posted.payload['pubkey'], s.ownKp.publicKey);
+  assert.equal(posted.payload['invite_ref'], null);
+  assert.equal(await verifyEvent(port, posted), true);
+});
+
+test('createAccount: already registered -> STATE, nothing posted', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: [accountEntry(s.ownKp.publicKey, 1)],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await createAccount(ctx), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('createAccount: locked key -> SIGNING, nothing posted', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: [],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: null,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await createAccount(ctx), 'SIGNING');
+  assert.equal(relay.postCount, 0);
+});
+
+const dealInput = (seller: Pubkey) => ({
+  seller,
+  amountText: '50',
+  deadlineDaysText: '7',
+  criteriaText: 'Deliver a logo as SVG',
+});
+
+test('createDeal: posts DealCreated and stores the salt that matches criteria_hash', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: [accountEntry(s.ownKp.publicKey, 1), accountEntry(s.otherKp.publicKey, 2)],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  const r = await createDeal(ctx, { random: countingRandom, storage }, dealInput(s.otherKp.publicKey));
+  assert.equal(r.ok, true);
+  const posted = relay.lastPosted;
+  assert.ok(posted !== null);
+  assert.equal(posted.type, 'DealCreated');
+  assert.equal(posted.signer, s.ownKp.publicKey);
+  assert.equal(posted.payload['buyer'], s.ownKp.publicKey);
+  assert.equal(posted.payload['seller'], s.otherKp.publicKey);
+  assert.equal(posted.payload['amount'], 50);
+  assert.equal(await verifyEvent(port, posted), true);
+  const stored = loadDealSecrets(storage);
+  assert.ok(stored.ok);
+  assert.equal(stored.value.length, 1);
+  const secret = stored.value[0];
+  assert.ok(secret !== undefined);
+  assert.equal(secret.deal_id, posted.payload['deal_id']);
+  assert.equal(
+    await criteriaCommitment(port, hexToBytesLower(secret.salt), secret.criteria_text),
+    posted.payload['criteria_hash'],
+  );
+});
+
+test('createDeal: seller not registered -> STATE, nothing posted, nothing stored', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: [accountEntry(s.ownKp.publicKey, 1)],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await createDeal(ctx, { random: countingRandom, storage }, dealInput(s.otherKp.publicKey)),
+    'STATE',
+  );
+  assert.equal(relay.postCount, 0);
+  assert.equal(storage.map.size, 0);
+});
+
+test('createDeal: locked key -> SIGNING, the stored salt is removed again', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: [accountEntry(s.ownKp.publicKey, 1), accountEntry(s.otherKp.publicKey, 2)],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: null,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await createDeal(ctx, { random: countingRandom, storage }, dealInput(s.otherKp.publicKey)),
+    'SIGNING',
+  );
+  assert.equal(relay.postCount, 0);
+  assert.equal(storage.map.size, 0);
+});
+
+test('createDeal: relay rejection keeps the salt (the event may have been accepted)', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s, {
+    postStatus: 400,
+    postBody: { code: 'LIMIT', message: 'too high', path: 'payload.amount' },
+  });
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: [accountEntry(s.ownKp.publicKey, 1), accountEntry(s.otherKp.publicKey, 2)],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await createDeal(ctx, { random: countingRandom, storage }, dealInput(s.otherKp.publicKey)),
+    'LIMIT',
+  );
+  assert.equal(relay.postCount, 1);
+  const stored = loadDealSecrets(storage);
+  assert.ok(stored.ok);
+  assert.equal(stored.value.length, 1);
+});
+
+test('createDeal: storage failure stops before anything is posted', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const storage: StoragePort = {
+    get: () => null,
+    set: () => {
+      throw new Error('quota');
+    },
+    remove: () => {},
+  };
+  const ctx = makeCtx({
+    entries: [accountEntry(s.ownKp.publicKey, 1), accountEntry(s.otherKp.publicKey, 2)],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await createDeal(ctx, { random: countingRandom, storage }, dealInput(s.otherKp.publicKey)),
+    'STORE_FAILURE',
+  );
   assert.equal(relay.postCount, 0);
 });

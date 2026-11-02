@@ -10,7 +10,7 @@ Prerequisites (in the repo root folder):
 
 Free ports: 8080 (web UI), 3000 (relay), 8787 (mailbox), 9911 (test sink). Run:
 
-    npm run smoke            # all four one after another
+    npm run smoke            # all of them one after another
     node tools/smoke/ui.mjs  # individually
 
 | Script | Checks |
@@ -18,6 +18,7 @@ Free ports: 8080 (web UI), 3000 (relay), 8787 (mailbox), 9911 (test sink). Run:
 | ui.mjs | Create key, genesis, sync and chain verification, explorer, unlock, deals, consentDeal, rollback detection, error cases |
 | messages.mjs | End-to-end messages across two browser profiles and the mailbox |
 | jury.mjs | Dispute with 3 jurors, castVote in the UI, resolution (test genesis with jury thresholds 0, for the test only) |
+| create.mjs | Register the UI key as an account, create a deal in the UI (validation errors, stored salt, commitment check), seller consent |
 | reports.mjs | POST /v1/reports against the real relay: 404 without configuration, 201/200, concurrency, restart, corrupted outbox, redelivery |
 
 Output: `OK` or `FAIL` per check; exit code 1 as soon as a check fails. Working files live in a temp folder.

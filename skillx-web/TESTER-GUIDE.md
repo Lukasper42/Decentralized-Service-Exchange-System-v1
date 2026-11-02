@@ -4,22 +4,27 @@ This is a test version. Do not use real money, real identities or valuables. The
 
 ## What you can do in the UI
 - Create a key and see your public key (your pseudonym).
+- Register your key as a ledger account (Account page, "Register this key"). This works only if the operator put your public key into the genesis.
+- Create a deal as buyer (Deals page, "New deal"): seller public key, amount, deadline in days, acceptance criteria.
 - Browse the chain (Explorer), your account totals and your deals.
 - Consent to a deal as seller (Deals, "Consent").
 - Vote as an assigned juror (Jury).
 - Send and receive end-to-end encrypted messages (Messages), if the operator runs a mailbox.
 
 ## What is not in the UI yet
-Creating accounts and creating deals. For now the operator does this with a script, and an account can only be created with your own signature. Ask the operator how to take part; do this only with a test key and a password you use nowhere else.
+Funding the escrow, submitting a delivery, accepting or rejecting it, and opening a dispute. A deal created in the UI can reach "created" and "consented"; the later steps are done by the operator with scripts for now.
 
 ## First steps
 1. Open the address the operator gave you. Use Tor Browser if the address ends in `.onion`.
 2. Status: enter the relay URL and the relay public key from the operator, "Save and connect". Expectation: health ok, tip and locally verified length equal.
 3. Identity: create a key with a password of at least 16 characters.
 4. Identity: export the vault now and keep the file safe.
-5. Send the operator your public key (the code line on the Identity page).
+5. Send the operator your public key (the code line on the Identity page). The operator must list it in the genesis before you can register.
+6. After the operator confirms, Account page: "Register this key". Expectation: the button disappears and the Deals page shows the "New deal" form.
 
 ## Things that surprise people
+- Your acceptance criteria text and its random salt stay only in this browser (only a salted hash goes on the ledger). Clearing site data loses them; the vault export does not contain them.
+- In this version your recovery key is the same as your key: there is no separate recovery.
 - The UI stores exactly one key per browser. Creating a new key overwrites it. "Delete vault" removes it for good: without the exported vault file and the password there is no recovery.
 - Unlocking is lost when you reload the page. Move around with the menu links, not the address bar. The key locks itself after 10 minutes.
 - Account totals are derived from ledger entries only. Before your first entry everything shows 0.

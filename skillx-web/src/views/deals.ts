@@ -1,7 +1,7 @@
 import { el, liveRegion, text, blockedReasons, type Deps } from './common.js';
-import { deriveDeals } from '../project.js';
+import { deriveDeals, deriveKeyStatus } from '../project.js';
 import { formatAmount, formatError, formatIso } from '../format.js';
-import { consentDeal } from '../actions.js';
+import { consentDeal, createDeal } from '../actions.js';
 
 export function render(root: HTMLElement, deps: Deps): () => void {
   root.replaceChildren();
@@ -18,6 +18,70 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   const table = el('table');
   root.append(table);
 
+  // Built once (not inside the subscription) so that typed text survives the 15 s poll.
+  const form = el('section');
+  form.hidden = true;
+  const formTitle = el('h3');
+  text(formTitle, 'New deal (you are the buyer)');
+  form.append(formTitle);
+  const field = (id: string, label: string, input: HTMLInputElement | HTMLTextAreaElement): void => {
+    const l = el('label');
+    l.htmlFor = id;
+    text(l, label);
+    input.id = id;
+    form.append(l, input);
+  };
+  const seller = el('input');
+  seller.autocomplete = 'off';
+  field('deal-seller', 'Seller public key', seller);
+  const amount = el('input');
+  amount.inputMode = 'numeric';
+  amount.autocomplete = 'off';
+  field('deal-amount', 'Amount (whole number, at least 2)', amount);
+  const days = el('input');
+  days.inputMode = 'numeric';
+  days.autocomplete = 'off';
+  days.value = '7';
+  field('deal-days', 'Deadline in days from now (1 to 365)', days);
+  const criteria = el('textarea');
+  criteria.rows = 4;
+  field('deal-criteria', 'Acceptance criteria (up to 2000 characters)', criteria);
+  const formNote = el('p');
+  text(
+    formNote,
+    'Only a salted hash of the criteria goes on the ledger. The text and the salt stay in this browser; clearing site data loses them.',
+  );
+  const create = el('button');
+  create.id = 'deal-create';
+  text(create, 'Create deal');
+  form.append(formNote, create);
+  root.append(form);
+  create.addEventListener('click', () => {
+    const ctx = deps.makeActionContext();
+    if (!ctx) {
+      text(msg, 'Action blocked.');
+      return;
+    }
+    const result = createDeal(
+      ctx,
+      { random: deps.random, storage: deps.storage },
+      {
+        seller: seller.value,
+        amountText: amount.value,
+        deadlineDaysText: days.value,
+        criteriaText: criteria.value,
+      },
+    );
+    void result.then((r) => {
+      if (r.ok) {
+        seller.value = '';
+        amount.value = '';
+        criteria.value = '';
+      }
+    });
+    void deps.runAction(result);
+  });
+
   const unsubscribe = deps.store.subscribeNow((s) => {
     table.replaceChildren();
     const own = s.ownPubkey;
@@ -29,6 +93,8 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       transportError: !s.sync.lastSyncOk,
     });
     const blocked = reasons.length > 0;
+    form.hidden = !(own !== null && deriveKeyStatus(entries, own) === 'active');
+    create.disabled = blocked;
     const syncDetail = s.sync.lastError ? ` (${formatError(s.sync.lastError)})` : '';
     text(
       hint,
