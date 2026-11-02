@@ -167,6 +167,8 @@ const deps: Deps = {
   saveFile: (name, text) => browserFiles.save(name, text),
   pickFile: () => browserFiles.pick(),
   keyStatusOf: (pubkey, entries) => deriveKeyStatus(entries, pubkey),
+  random: browserRandom,
+  storage: browserStorage,
 };
 
 const messagesStore = new MessagesStore(browserCrypto, browserStorage, browserRandom);

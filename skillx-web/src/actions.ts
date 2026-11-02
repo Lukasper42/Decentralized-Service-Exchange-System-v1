@@ -1,4 +1,4 @@
-import type { ClockPort, CryptoPort } from './ports.js';
+import type { ClockPort, CryptoPort, RandomPort, StoragePort } from './ports.js';
 import type { Pubkey, Result, SignedEvent } from './types.js';
 import { err, ok } from './types.js';
 import { signEventWithKey, signAttestationWithKey, verifyAttestation } from './crypto.js';
@@ -8,6 +8,13 @@ import {
   deriveOpenJuryCases,
   findDealForConsent,
 } from './project.js';
+import {
+  buildAccountCreatedPayload,
+  buildDealCreatedPayload,
+  removeDealSecret,
+  saveDealSecret,
+} from './create-actions.js';
+import type { DealInput } from './create-actions.js';
 import type { ChainVerifier } from './verify.js';
 import type { RelayClient } from './relay-client.js';
 import { validatePostReceipt } from './relay-client.js';
@@ -109,6 +116,54 @@ export async function consentDeal(
     consent_sig: sigRes.value,
   };
   return buildAndSend(ctx, payload, 'DealConsented');
+}
+
+export async function createAccount(ctx: ActionContext): Promise<ActionResult> {
+  const built = await buildAccountCreatedPayload(
+    ctx.crypto,
+    ctx.verifier.getEntries(),
+    ctx.ownPubkey,
+  );
+  if (!built.ok) {
+    return { ok: false, error: built.error };
+  }
+  return buildAndSend(ctx, built.value, 'AccountCreated');
+}
+
+export interface CreateDealDeps {
+  random: RandomPort;
+  storage: StoragePort;
+}
+
+/** Errors that happen before anything left this browser: the stored salt is not needed then. */
+const PRE_SEND_ERRORS: readonly string[] = ['SIGNING', 'STATE', 'READ_ONLY'];
+
+export async function createDeal(
+  ctx: ActionContext,
+  deps: CreateDealDeps,
+  input: DealInput,
+): Promise<ActionResult> {
+  const built = await buildDealCreatedPayload(
+    { crypto: ctx.crypto, random: deps.random, clock: ctx.clock },
+    ctx.verifier.getEntries(),
+    ctx.ownPubkey,
+    input,
+  );
+  if (!built.ok) {
+    return { ok: false, error: built.error };
+  }
+  const { payload, secret } = built.value;
+  // The salt must be stored before sending: it cannot be recomputed and is needed for a later reveal.
+  const saved = saveDealSecret(deps.storage, secret);
+  if (!saved.ok) {
+    return { ok: false, error: saved.error };
+  }
+  const sent = await buildAndSend(ctx, payload, 'DealCreated');
+  if (!sent.ok && PRE_SEND_ERRORS.includes(sent.error.code)) {
+    // Any other failure may still mean the relay accepted the event, so the secret stays.
+    removeDealSecret(deps.storage, secret.deal_id);
+  }
+  return sent;
 }
 
 export async function castVote(

@@ -7,6 +7,6 @@
   "scripts": {
     "build": "npm --prefix skill-exchange-ledger run build && npm --prefix skillx-web run build && npm --prefix skillx-mailbox run build",
     "test": "npm --prefix skill-exchange-ledger test && npm --prefix skillx-web test && npm --prefix skillx-mailbox test",
-    "smoke": "node tools/smoke/ui.mjs && node tools/smoke/messages.mjs && node tools/smoke/jury.mjs && node tools/smoke/reports.mjs"
+    "smoke": "node tools/smoke/ui.mjs && node tools/smoke/messages.mjs && node tools/smoke/jury.mjs && node tools/smoke/create.mjs && node tools/smoke/reports.mjs"
   }
 }
