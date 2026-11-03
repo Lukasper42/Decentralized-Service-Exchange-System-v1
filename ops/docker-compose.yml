@@ -1,0 +1,113 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: skill
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: skill_exchange
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skill -d skill_exchange"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - skillx
+
+  relay:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.relay
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      RELAY_MODE: postgres
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DATABASE_URL: "postgres://skill:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/skill_exchange"
+      GENESIS_FILE: /run/relay/genesis.json
+      GENESIS_SHA256: "${GENESIS_SHA256:?GENESIS_SHA256 is required}"
+      RELAY_KEY_FILE: /run/relay/relay.key
+      ALLOWED_ORIGIN: "https://${DOMAIN:?DOMAIN is required}"
+      TRUSTED_PROXIES: 172.28.0.10
+      RATE_PER_IP: "${RATE_PER_IP:-120}"
+      RATE_PER_KEY: "${RATE_PER_KEY:-60}"
+    volumes:
+      - ./secrets/genesis.json:/run/relay/genesis.json:ro
+      - ./secrets/relay.key:/run/relay/relay.key:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/v1/health').then(async (r) => { await r.arrayBuffer(); if (!r.ok) process.exitCode = 1; }).catch(() => { process.exitCode = 1; });"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - skillx
+
+  caddy:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: "${DOMAIN:?DOMAIN is required}"
+      ACME_EMAIL: "${ACME_EMAIL:?ACME_EMAIL is required}"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      skillx:
+        ipv4_address: 172.28.0.10
+    depends_on:
+      - relay
+
+  mailbox:
+    profiles: ["mailbox"]
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.mailbox
+    network_mode: "service:caddy"
+    environment:
+      ALLOWED_ORIGIN: "https://${DOMAIN:?DOMAIN is required}"
+      PORT: "8787"
+    volumes:
+      - mailbox_data:/app/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    depends_on:
+      - caddy
+    # network_mode and networks cannot be combined; this service has no networks key.
+
+networks:
+  skillx:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  mailbox_data:
