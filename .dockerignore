@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+.git
+.npm-cache
+ops/.env
+ops/secrets
+ops/backups
+**/relay.key
+**/genesis.json
+**/*-keys.json
