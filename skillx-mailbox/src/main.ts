@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     server.listen(port, '127.0.0.1', resolve);
   });
 
-  console.log('skillx-mailbox: bereit auf 127.0.0.1:' + String(port));
+  console.log('skillx-mailbox: listening on 127.0.0.1:' + String(port));
 }
 
 main().catch(() => {
