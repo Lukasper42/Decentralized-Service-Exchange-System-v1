@@ -3,6 +3,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { createRequire } from 'node:module';
 import process from 'node:process';
@@ -639,7 +640,7 @@ async function main() {
       }
     }
 
-    C = await import(`${L}/dist/packages/crypto/src/index.js`);
+    C = await import(pathToFileURL(join(L, 'dist', 'packages', 'crypto', 'src', 'index.js')).href);
     keepTemp = cfg.keep;
     tempDir = workdir('load');
 
