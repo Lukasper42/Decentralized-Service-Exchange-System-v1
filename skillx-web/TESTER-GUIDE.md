@@ -8,11 +8,15 @@ This is a test version. Do not use real money, real identities or valuables. The
 - Create a deal as buyer (Deals page, "New deal"): seller public key, amount, deadline in days, acceptance criteria.
 - Browse the chain (Explorer), your account totals and your deals.
 - Consent to a deal as seller (Deals, "Consent").
+- Fund the escrow as buyer, once the seller has consented (Deals, "Fund escrow").
+- Submit a delivery as seller, once escrow is funded (Deals, enter the deliverable text, "Submit deliverable"). Send the same text to the buyer yourself, for example via Messages; only its hash goes on the ledger.
+- Accept a delivery as buyer (Deals, "Accept"), or reject it with a reason (Deals, enter a reason, "Reject"). Only a salted hash of the reason goes on the ledger; the text and salt stay in this browser.
+- Open a dispute after a rejection, as either buyer or seller (Deals, "Open dispute").
 - Vote as an assigned juror (Jury).
 - Send and receive end-to-end encrypted messages (Messages), if the operator runs a mailbox.
 
 ## What is not in the UI yet
-Funding the escrow, submitting a delivery, accepting or rejecting it, and opening a dispute. A deal created in the UI can reach "created" and "consented"; the later steps are done by the operator with scripts for now.
+Everything after a dispute is opened (jury assignment, voting as a party, appeals, release) still needs the operator or scripts. The UI covers a deal from creation through fund/deliver/accept-or-reject/dispute.
 
 ## First steps
 1. Open the address the operator gave you. Use Tor Browser if the address ends in `.onion`.

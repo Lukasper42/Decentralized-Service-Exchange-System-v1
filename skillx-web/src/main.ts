@@ -169,6 +169,7 @@ const deps: Deps = {
   keyStatusOf: (pubkey, entries) => deriveKeyStatus(entries, pubkey),
   random: browserRandom,
   storage: browserStorage,
+  crypto: browserCrypto,
 };
 
 const messagesStore = new MessagesStore(browserCrypto, browserStorage, browserRandom);

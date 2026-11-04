@@ -1,7 +1,17 @@
 import { el, liveRegion, text, blockedReasons, type Deps } from './common.js';
 import { deriveDeals, deriveKeyStatus } from '../project.js';
 import { formatAmount, formatError, formatIso } from '../format.js';
-import { consentDeal, createDeal } from '../actions.js';
+import {
+  acceptDeal,
+  consentDeal,
+  createDeal,
+  fundEscrow,
+  openDispute,
+  rejectDeal,
+  submitDeliverable,
+} from '../actions.js';
+import { sha256HexUtf8 } from '../crypto.js';
+import type { ActionContext } from '../actions.js';
 
 export function render(root: HTMLElement, deps: Deps): () => void {
   root.replaceChildren();
@@ -135,9 +145,9 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         tr.append(td);
       }
       const tdAct = el('td');
-      if (own && deal.seller === own && deal.state === 'created') {
+      const simpleAction = (label: string, build: (ctx: ActionContext) => Promise<unknown>): void => {
         const btn = el('button');
-        text(btn, 'Consent');
+        text(btn, label);
         btn.disabled = blocked;
         btn.addEventListener('click', () => {
           const ctx = deps.makeActionContext();
@@ -145,9 +155,71 @@ export function render(root: HTMLElement, deps: Deps): () => void {
             text(msg, 'Action blocked.');
             return;
           }
-          void deps.runAction(consentDeal(ctx, deal.deal_id));
+          void build(ctx);
         });
         tdAct.append(btn);
+      };
+      if (own && deal.seller === own && deal.state === 'created') {
+        simpleAction('Consent', (ctx) => deps.runAction(consentDeal(ctx, deal.deal_id)));
+      } else if (own && deal.buyer === own && deal.state === 'consented') {
+        simpleAction('Fund escrow', (ctx) => deps.runAction(fundEscrow(ctx, deal.deal_id)));
+      } else if (own && deal.seller === own && deal.state === 'funded') {
+        const content = el('textarea');
+        content.rows = 3;
+        content.placeholder = 'Deliverable text (send the same text to the buyer via Messages)';
+        const btn = el('button');
+        text(btn, 'Submit deliverable');
+        btn.disabled = blocked;
+        btn.addEventListener('click', () => {
+          const ctx = deps.makeActionContext();
+          if (!ctx) {
+            text(msg, 'Action blocked.');
+            return;
+          }
+          if (content.value.trim() === '') {
+            text(msg, 'Enter the deliverable text first.');
+            return;
+          }
+          void (async () => {
+            const content_hash = await sha256HexUtf8(deps.crypto, content.value);
+            await deps.runAction(submitDeliverable(ctx, deal.deal_id, content_hash));
+          })();
+        });
+        tdAct.append(content, btn);
+      } else if (own && deal.buyer === own && deal.state === 'delivered') {
+        const acceptBtn = el('button');
+        text(acceptBtn, 'Accept');
+        acceptBtn.disabled = blocked;
+        acceptBtn.addEventListener('click', () => {
+          const ctx = deps.makeActionContext();
+          if (!ctx) {
+            text(msg, 'Action blocked.');
+            return;
+          }
+          void deps.runAction(acceptDeal(ctx, deal.deal_id));
+        });
+        const reason = el('input');
+        reason.placeholder = 'Rejection reason';
+        const rejectBtn = el('button');
+        text(rejectBtn, 'Reject');
+        rejectBtn.disabled = blocked;
+        rejectBtn.addEventListener('click', () => {
+          const ctx = deps.makeActionContext();
+          if (!ctx) {
+            text(msg, 'Action blocked.');
+            return;
+          }
+          if (reason.value.trim() === '') {
+            text(msg, 'Enter a rejection reason first.');
+            return;
+          }
+          void deps.runAction(
+            rejectDeal(ctx, { random: deps.random, storage: deps.storage }, deal.deal_id, reason.value),
+          );
+        });
+        tdAct.append(acceptBtn, reason, rejectBtn);
+      } else if (own && (deal.buyer === own || deal.seller === own) && deal.state === 'rejected') {
+        simpleAction('Open dispute', (ctx) => deps.runAction(openDispute(ctx, deal.deal_id)));
       } else {
         text(tdAct, '–');
       }

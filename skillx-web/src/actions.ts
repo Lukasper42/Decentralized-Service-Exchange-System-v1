@@ -11,8 +11,11 @@ import {
 import {
   buildAccountCreatedPayload,
   buildDealCreatedPayload,
+  buildRejectReasonSecret,
   removeDealSecret,
+  removeReasonSecret,
   saveDealSecret,
+  saveReasonSecret,
 } from './create-actions.js';
 import type { DealInput } from './create-actions.js';
 import type { ChainVerifier } from './verify.js';
@@ -116,6 +119,147 @@ export async function consentDeal(
     consent_sig: sigRes.value,
   };
   return buildAndSend(ctx, payload, 'DealConsented');
+}
+
+export async function fundEscrow(
+  ctx: ActionContext,
+  dealId: string,
+): Promise<ActionResult> {
+  const entries = ctx.verifier.getEntries();
+  const deal = deriveDeals(entries).get(dealId);
+  if (!deal) {
+    return preconditionFail('Deal not found in the verified chain', '$.action.deal');
+  }
+  if (deal.buyer !== ctx.ownPubkey) {
+    return preconditionFail('Only the buyer can fund escrow', '$.action.role');
+  }
+  if (deal.state !== 'consented') {
+    return preconditionFail(`State "${deal.state}" does not allow funding escrow`, '$.action.state');
+  }
+  const payload: Record<string, unknown> = {
+    deal_id: dealId,
+    from: ctx.ownPubkey,
+    amount: deal.amount,
+  };
+  return buildAndSend(ctx, payload, 'EscrowFunded');
+}
+
+export async function submitDeliverable(
+  ctx: ActionContext,
+  dealId: string,
+  contentHash: string,
+): Promise<ActionResult> {
+  const entries = ctx.verifier.getEntries();
+  const deal = deriveDeals(entries).get(dealId);
+  if (!deal) {
+    return preconditionFail('Deal not found in the verified chain', '$.action.deal');
+  }
+  if (deal.seller !== ctx.ownPubkey) {
+    return preconditionFail('Only the seller can submit the deliverable', '$.action.role');
+  }
+  if (deal.state !== 'funded') {
+    return preconditionFail(`State "${deal.state}" does not allow submitting a deliverable`, '$.action.state');
+  }
+  const payload: Record<string, unknown> = {
+    deal_id: dealId,
+    content_hash: contentHash,
+    precheck_ref: null,
+  };
+  return buildAndSend(ctx, payload, 'DeliverableSubmitted');
+}
+
+export async function acceptDeal(
+  ctx: ActionContext,
+  dealId: string,
+): Promise<ActionResult> {
+  const entries = ctx.verifier.getEntries();
+  const deal = deriveDeals(entries).get(dealId);
+  if (!deal) {
+    return preconditionFail('Deal not found in the verified chain', '$.action.deal');
+  }
+  if (deal.buyer !== ctx.ownPubkey) {
+    return preconditionFail('Only the buyer can accept the deliverable', '$.action.role');
+  }
+  if (deal.state !== 'delivered') {
+    return preconditionFail(`State "${deal.state}" does not allow accepting`, '$.action.state');
+  }
+  const payload: Record<string, unknown> = {
+    deal_id: dealId,
+    by: ctx.ownPubkey,
+  };
+  return buildAndSend(ctx, payload, 'DealAccepted');
+}
+
+export interface RejectDealDeps {
+  random: RandomPort;
+  storage: StoragePort;
+}
+
+export async function rejectDeal(
+  ctx: ActionContext,
+  deps: RejectDealDeps,
+  dealId: string,
+  reasonText: string,
+): Promise<ActionResult> {
+  const entries = ctx.verifier.getEntries();
+  const deal = deriveDeals(entries).get(dealId);
+  if (!deal) {
+    return preconditionFail('Deal not found in the verified chain', '$.action.deal');
+  }
+  if (deal.buyer !== ctx.ownPubkey) {
+    return preconditionFail('Only the buyer can reject the deliverable', '$.action.role');
+  }
+  if (deal.state !== 'delivered') {
+    return preconditionFail(`State "${deal.state}" does not allow rejecting`, '$.action.state');
+  }
+  const built = await buildRejectReasonSecret(
+    ctx.crypto,
+    { random: deps.random, clock: ctx.clock },
+    dealId,
+    reasonText,
+  );
+  if (!built.ok) {
+    return { ok: false, error: built.error };
+  }
+  const { reason_hash, secret } = built.value;
+  // The salt must be stored before sending: it cannot be recomputed and is needed for a later reveal.
+  const saved = saveReasonSecret(deps.storage, secret);
+  if (!saved.ok) {
+    return { ok: false, error: saved.error };
+  }
+  const payload: Record<string, unknown> = {
+    deal_id: dealId,
+    by: ctx.ownPubkey,
+    reason_hash,
+  };
+  const sent = await buildAndSend(ctx, payload, 'DealRejected');
+  if (!sent.ok && PRE_SEND_ERRORS.includes(sent.error.code)) {
+    // Any other failure may still mean the relay accepted the event, so the secret stays.
+    removeReasonSecret(deps.storage, dealId);
+  }
+  return sent;
+}
+
+export async function openDispute(
+  ctx: ActionContext,
+  dealId: string,
+): Promise<ActionResult> {
+  const entries = ctx.verifier.getEntries();
+  const deal = deriveDeals(entries).get(dealId);
+  if (!deal) {
+    return preconditionFail('Deal not found in the verified chain', '$.action.deal');
+  }
+  if (deal.buyer !== ctx.ownPubkey && deal.seller !== ctx.ownPubkey) {
+    return preconditionFail('Only buyer or seller can open a dispute', '$.action.role');
+  }
+  if (deal.state !== 'rejected') {
+    return preconditionFail(`State "${deal.state}" does not allow opening a dispute`, '$.action.state');
+  }
+  const payload: Record<string, unknown> = {
+    deal_id: dealId,
+    by: ctx.ownPubkey,
+  };
+  return buildAndSend(ctx, payload, 'DisputeOpened');
 }
 
 export async function createAccount(ctx: ActionContext): Promise<ActionResult> {
