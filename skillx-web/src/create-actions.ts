@@ -6,7 +6,9 @@ import { AMOUNT_MAX, AMOUNT_MIN, isRecord } from './guards.js';
 import { deriveKeyStatus } from './project.js';
 
 export const DEAL_SECRETS_KEY = 'skillx.deal-secrets.v1';
+export const REASON_SECRETS_KEY = 'skillx.reason-secrets.v1';
 export const MAX_CRITERIA_CHARS = 2000;
+export const MAX_REASON_CHARS = 2000;
 export const MAX_DEADLINE_DAYS = 365;
 
 export interface DealInput {
@@ -20,6 +22,13 @@ export interface DealSecret {
   deal_id: string;
   salt: string;
   criteria_text: string;
+  created_at: IsoUtc;
+}
+
+export interface ReasonSecret {
+  deal_id: string;
+  salt: string;
+  reason_text: string;
   created_at: IsoUtc;
 }
 
@@ -55,6 +64,24 @@ export async function criteriaCommitment(
   const encoder = new TextEncoder();
   const prefixBytes = encoder.encode('skillx/v1/commit/criteria\n');
   const textBytes = encoder.encode(criteriaText);
+  const combined = new Uint8Array(prefixBytes.length + salt.length + textBytes.length);
+  combined.set(prefixBytes, 0);
+  combined.set(salt, prefixBytes.length);
+  combined.set(textBytes, prefixBytes.length + salt.length);
+  return await sha256Hex(crypto, combined);
+}
+
+export async function reasonCommitment(
+  crypto: CryptoPort,
+  salt: Uint8Array,
+  reasonText: string,
+): Promise<Hash> {
+  if (salt.length !== 32) {
+    throw new Error('Salt must be 32 bytes');
+  }
+  const encoder = new TextEncoder();
+  const prefixBytes = encoder.encode('skillx/v1/commit/reason\n');
+  const textBytes = encoder.encode(reasonText);
   const combined = new Uint8Array(prefixBytes.length + salt.length + textBytes.length);
   combined.set(prefixBytes, 0);
   combined.set(salt, prefixBytes.length);
@@ -181,6 +208,133 @@ export async function buildDealCreatedPayload(
     created_at: deps.clock.nowIso(),
   };
   return ok({ payload, secret });
+}
+
+export async function buildRejectReasonSecret(
+  crypto: CryptoPort,
+  deps: { random: RandomPort; clock: ClockPort },
+  dealId: string,
+  reasonText: string,
+): Promise<Result<{ reason_hash: Hash; secret: ReasonSecret }>> {
+  if (reasonText.trim() === '' || reasonText.length > MAX_REASON_CHARS) {
+    return err('FIELD_FORMAT', 'Reason must be 1 to 2000 characters', '$.reason');
+  }
+  let salt: Uint8Array;
+  let reason_hash: Hash;
+  try {
+    const saltBytes = deps.random.bytes(32);
+    if (saltBytes.length !== 32) {
+      throw new Error('Salt must be 32 bytes');
+    }
+    salt = new Uint8Array(saltBytes);
+    reason_hash = await reasonCommitment(crypto, salt, reasonText);
+  } catch {
+    return err('SIGNING', 'Could not build the reason commitment', '$.reason_hash');
+  }
+  const secret: ReasonSecret = {
+    deal_id: dealId,
+    salt: bytesToHexLower(salt),
+    reason_text: reasonText,
+    created_at: deps.clock.nowIso(),
+  };
+  return ok({ reason_hash, secret });
+}
+
+export function saveReasonSecret(storage: StoragePort, secret: ReasonSecret): Result<true> {
+  const listResult = loadReasonSecrets(storage);
+  if (!listResult.ok) {
+    return listResult;
+  }
+  const list = listResult.value;
+  const copy: ReasonSecret = {
+    deal_id: secret.deal_id,
+    salt: secret.salt,
+    reason_text: secret.reason_text,
+    created_at: secret.created_at,
+  };
+  const idx = list.findIndex((s) => s.deal_id === copy.deal_id);
+  if (idx >= 0) {
+    list[idx] = copy;
+  } else {
+    list.push(copy);
+  }
+  try {
+    storage.set(REASON_SECRETS_KEY, JSON.stringify(list));
+    return ok(true);
+  } catch {
+    return err('STORE_FAILURE', 'Could not store the reason secret in this browser', '$.storage');
+  }
+}
+
+export function loadReasonSecrets(storage: StoragePort): Result<ReasonSecret[]> {
+  let raw: string | null;
+  try {
+    raw = storage.get(REASON_SECRETS_KEY);
+  } catch {
+    return err('STORE_FAILURE', 'Stored reason secrets are corrupt', '$.storage');
+  }
+  if (raw === null) {
+    return ok([]);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return err('STORE_FAILURE', 'Stored reason secrets are corrupt', '$.storage');
+  }
+  if (!Array.isArray(parsed)) {
+    return err('STORE_FAILURE', 'Stored reason secrets are corrupt', '$.storage');
+  }
+  const isoPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  const saltPattern = /^[a-f0-9]{64}$/;
+  const result: ReasonSecret[] = [];
+  for (const item of parsed) {
+    if (!isRecord(item)) {
+      return err('STORE_FAILURE', 'Stored reason secrets are corrupt', '$.storage');
+    }
+    const dealId = item['deal_id'];
+    const salt = item['salt'];
+    const reasonText = item['reason_text'];
+    const createdAt = item['created_at'];
+    if (
+      typeof dealId !== 'string' ||
+      typeof salt !== 'string' ||
+      typeof reasonText !== 'string' ||
+      typeof createdAt !== 'string'
+    ) {
+      return err('STORE_FAILURE', 'Stored reason secrets are corrupt', '$.storage');
+    }
+    if (!saltPattern.test(salt)) {
+      return err('STORE_FAILURE', 'Stored reason secrets are corrupt', '$.storage');
+    }
+    if (!isoPattern.test(createdAt)) {
+      return err('STORE_FAILURE', 'Stored reason secrets are corrupt', '$.storage');
+    }
+    result.push({
+      deal_id: dealId,
+      salt,
+      reason_text: reasonText,
+      created_at: createdAt,
+    });
+  }
+  return ok(result);
+}
+
+export function removeReasonSecret(storage: StoragePort, dealId: string): void {
+  const listResult = loadReasonSecrets(storage);
+  if (!listResult.ok) {
+    return;
+  }
+  const filtered = listResult.value.filter((s) => s.deal_id !== dealId);
+  try {
+    if (filtered.length === 0) {
+      storage.remove(REASON_SECRETS_KEY);
+    } else {
+      storage.set(REASON_SECRETS_KEY, JSON.stringify(filtered));
+    }
+  } catch {
+    // swallow
+  }
 }
 
 export function saveDealSecret(storage: StoragePort, secret: DealSecret): Result<true> {

@@ -7,14 +7,21 @@ import type { IsoUtc, LedgerEntry, Pubkey } from '../types.js';
 import {
   buildAccountCreatedPayload,
   buildDealCreatedPayload,
+  buildRejectReasonSecret,
   criteriaCommitment,
   DEAL_SECRETS_KEY,
   type DealInput,
   type DealSecret,
   loadDealSecrets,
+  loadReasonSecrets,
+  reasonCommitment,
+  REASON_SECRETS_KEY,
   recoveryCommitmentOf,
   removeDealSecret,
+  removeReasonSecret,
+  type ReasonSecret,
   saveDealSecret,
+  saveReasonSecret,
   uuidV4,
 } from '../create-actions.js';
 
@@ -919,4 +926,146 @@ test('uuidV4 sets version 4 and variant bits at fixed positions', () => {
   assert.strictEqual(zero, '00000000-0000-4000-8000-000000000000');
   const ff = uuidV4({ bytes: () => new Uint8Array(16).fill(0xff) });
   assert.strictEqual(ff, 'ffffffff-ffff-4fff-bfff-ffffffffffff');
+});
+
+// ---------------------------------------------------------------------------
+// reasonCommitment / buildRejectReasonSecret / reason secret storage
+// ---------------------------------------------------------------------------
+
+test('reasonCommitment reproduces test vector', async () => {
+  const salt = new Uint8Array(32).fill(0x01);
+  const text = 'Logo does not match the brief';
+  const expected = '22705b02c4b50e203aaf74158ff8aba3f3ae556ae1d6d6a0be453bf183082821'.slice(0, 64);
+  const result = await reasonCommitment(port, salt, text);
+  assert.strictEqual(result, expected);
+});
+
+test('reasonCommitment throws for salt of 31 bytes', async () => {
+  const salt = new Uint8Array(31).fill(0x01);
+  await assert.rejects(() => reasonCommitment(port, salt, 'test'));
+});
+
+test('reasonCommitment changes with different text', async () => {
+  const salt = new Uint8Array(32).fill(0x01);
+  const hash1 = await reasonCommitment(port, salt, 'reason one');
+  const hash2 = await reasonCommitment(port, salt, 'reason two');
+  assert.notStrictEqual(hash1, hash2);
+});
+
+test('reasonCommitment differs from criteriaCommitment for the same salt and text', async () => {
+  const salt = new Uint8Array(32).fill(0x01);
+  const text = 'same text';
+  const a = await reasonCommitment(port, salt, text);
+  const b = await criteriaCommitment(port, salt, text);
+  assert.notStrictEqual(a, b);
+});
+
+test('buildRejectReasonSecret: empty reason -> FIELD_FORMAT', async () => {
+  const random = makeFakeRandom();
+  const clock: ClockPort = { nowMs: () => 0, nowIso: () => '2026-11-01T12:00:00.000Z' };
+  const result = await buildRejectReasonSecret(port, { random, clock }, 'deal-1', '   ');
+  assert.ok(!result.ok);
+  assert.strictEqual(result.error.code, 'FIELD_FORMAT');
+});
+
+test('buildRejectReasonSecret: too long -> FIELD_FORMAT', async () => {
+  const random = makeFakeRandom();
+  const clock: ClockPort = { nowMs: () => 0, nowIso: () => '2026-11-01T12:00:00.000Z' };
+  const result = await buildRejectReasonSecret(port, { random, clock }, 'deal-1', 'x'.repeat(2001));
+  assert.ok(!result.ok);
+  assert.strictEqual(result.error.code, 'FIELD_FORMAT');
+});
+
+test('buildRejectReasonSecret: success returns a hash matching the stored secret', async () => {
+  const random = makeFakeRandom(5);
+  const clock: ClockPort = { nowMs: () => 0, nowIso: () => '2026-11-01T12:00:00.000Z' };
+  const result = await buildRejectReasonSecret(port, { random, clock }, 'deal-1', 'Late delivery');
+  assert.ok(result.ok);
+  const { reason_hash, secret } = result.value;
+  assert.strictEqual(secret.deal_id, 'deal-1');
+  assert.strictEqual(secret.reason_text, 'Late delivery');
+  assert.strictEqual(secret.created_at, '2026-11-01T12:00:00.000Z');
+  assert.strictEqual(
+    await reasonCommitment(port, hexToBytesLower(secret.salt), secret.reason_text),
+    reason_hash,
+  );
+});
+
+test('saveReasonSecret and loadReasonSecrets round trip', () => {
+  const storage = makeFakeStorage();
+  const secret: ReasonSecret = {
+    deal_id: '550e8400-e29b-41d4-a716-446655440000',
+    salt: 'a'.repeat(64),
+    reason_text: 'test reason',
+    created_at: '2026-11-01T12:00:00.000Z',
+  };
+  const saveResult = saveReasonSecret(storage, secret);
+  assert.ok(saveResult.ok);
+  const loadResult = loadReasonSecrets(storage);
+  assert.ok(loadResult.ok);
+  assert.strictEqual(loadResult.value.length, 1);
+  assert.deepStrictEqual(loadResult.value[0], secret);
+});
+
+test('saveReasonSecret twice with same deal_id keeps one entry', () => {
+  const storage = makeFakeStorage();
+  saveReasonSecret(storage, {
+    deal_id: 'same-id',
+    salt: 'a'.repeat(64),
+    reason_text: 'first',
+    created_at: '2026-11-01T12:00:00.000Z',
+  });
+  saveReasonSecret(storage, {
+    deal_id: 'same-id',
+    salt: 'b'.repeat(64),
+    reason_text: 'second',
+    created_at: '2026-11-01T13:00:00.000Z',
+  });
+  const result = loadReasonSecrets(storage);
+  assert.ok(result.ok);
+  assert.strictEqual(result.value.length, 1);
+  assert.strictEqual(result.value[0]?.reason_text, 'second');
+});
+
+test('loadReasonSecrets corrupt: not json', () => {
+  const storage = makeFakeStorage();
+  storage.getMap().set(REASON_SECRETS_KEY, 'not json');
+  const result = loadReasonSecrets(storage);
+  assert.ok(!result.ok);
+  assert.strictEqual(result.error.code, 'STORE_FAILURE');
+});
+
+test('loadReasonSecrets corrupt: 63-char salt', () => {
+  const storage = makeFakeStorage();
+  const corrupt = JSON.stringify([{
+    deal_id: 'x',
+    salt: 'a'.repeat(63),
+    reason_text: 'y',
+    created_at: '2026-11-01T12:00:00.000Z',
+  }]);
+  storage.getMap().set(REASON_SECRETS_KEY, corrupt);
+  const result = loadReasonSecrets(storage);
+  assert.ok(!result.ok);
+  assert.strictEqual(result.error.code, 'STORE_FAILURE');
+});
+
+test('removeReasonSecret removes only the matching deal_id', () => {
+  const storage = makeFakeStorage();
+  saveReasonSecret(storage, {
+    deal_id: 'id-1',
+    salt: 'a'.repeat(64),
+    reason_text: 'first',
+    created_at: '2026-11-01T12:00:00.000Z',
+  });
+  saveReasonSecret(storage, {
+    deal_id: 'id-2',
+    salt: 'b'.repeat(64),
+    reason_text: 'second',
+    created_at: '2026-11-01T13:00:00.000Z',
+  });
+  removeReasonSecret(storage, 'id-1');
+  const result = loadReasonSecrets(storage);
+  assert.ok(result.ok);
+  assert.strictEqual(result.value.length, 1);
+  assert.strictEqual(result.value[0]?.deal_id, 'id-2');
 });

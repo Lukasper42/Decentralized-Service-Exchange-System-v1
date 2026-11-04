@@ -81,7 +81,62 @@ if (dealEntry && secrets[0]) {
 const rows = await page.locator('main table tbody tr').allInnerTexts();
 rec('Deal listed in the deals view', rows.some((r) => r.includes(String(dealEntry?.event.payload.deal_id ?? 'x'))), rows.join(' | ').slice(0, 200));
 // seller consents (script) to show the deal is a real, usable deal
-const cr = await sc.sync() && await sc.consentDeal(dealEntry.event.payload.deal_id);
+await sc.sync();
+const cr = await sc.consentDeal(dealEntry.event.payload.deal_id);
 rec('Seller can consent to the UI-created deal (client)', cr.ok, cr.ok ? '' : JSON.stringify(cr.error));
+
+// --- buyer funds escrow via the UI ---
+const dealId = dealEntry.event.payload.deal_id;
+await page.goto('http://127.0.0.1:8080/#/deals'); await sleep(1500);
+await page.click('button:has-text("Fund escrow")'); await sleep(2500);
+const escrowEntry = (await entries()).find((e) => e.event.type === 'EscrowFunded' && e.event.payload.deal_id === dealId);
+rec('EscrowFunded on the relay (from = UI key, amount 50)', escrowEntry !== undefined && escrowEntry.event.payload.from === aPk && escrowEntry.event.payload.amount === 50, JSON.stringify(escrowEntry?.event.payload));
+
+// seller submits the deliverable (script)
+const contentHash = createHash('sha256').update('deliverable-1').digest('hex');
+await sc.sync();
+const dr = await sc.submit('DeliverableSubmitted', { deal_id: dealId, content_hash: contentHash, precheck_ref: null });
+rec('Seller can submit the deliverable (client)', dr.ok, dr.ok ? '' : JSON.stringify(dr.error));
+
+// --- buyer accepts via the UI ---
+await page.goto('http://127.0.0.1:8080/#/deals'); await sleep(1500);
+await page.click('button:has-text("Accept")'); await sleep(2500);
+const acceptEntry = (await entries()).find((e) => e.event.type === 'DealAccepted' && e.event.payload.deal_id === dealId);
+rec('DealAccepted on the relay (by = UI key)', acceptEntry !== undefined && acceptEntry.event.payload.by === aPk, JSON.stringify(acceptEntry?.event.payload));
+
+// --- a second deal to exercise reject + dispute through the UI ---
+await page.goto('http://127.0.0.1:8080/#/deals'); await sleep(1500);
+await page.fill('#deal-seller', seller.publicKey); await page.fill('#deal-amount', '60'); await page.fill('#deal-days', '7');
+await page.fill('#deal-criteria', 'Deliver a one-page landing page');
+await page.click('#deal-create'); await sleep(3500);
+const dealEntries = (await entries()).filter((e) => e.event.type === 'DealCreated');
+const deal2 = dealEntries.find((e) => e.event.payload.deal_id !== dealId);
+rec('Second DealCreated on the relay', deal2 !== undefined, JSON.stringify(deal2?.event.payload));
+const dealId2 = deal2.event.payload.deal_id;
+await sc.sync();
+const cr2 = await sc.consentDeal(dealId2);
+rec('Seller consents to the second deal (client)', cr2.ok, cr2.ok ? '' : JSON.stringify(cr2.error));
+await page.goto('http://127.0.0.1:8080/#/deals'); await sleep(1500);
+const row2 = page.locator('main table tbody tr', { hasText: dealId2 });
+await row2.locator('button:has-text("Fund escrow")').click(); await sleep(2500);
+const escrow2 = (await entries()).find((e) => e.event.type === 'EscrowFunded' && e.event.payload.deal_id === dealId2);
+rec('EscrowFunded for the second deal', escrow2 !== undefined, JSON.stringify(escrow2?.event.payload));
+await sc.sync();
+const dr2 = await sc.submit('DeliverableSubmitted', { deal_id: dealId2, content_hash: createHash('sha256').update('deliverable-2').digest('hex'), precheck_ref: null });
+rec('Seller submits deliverable for the second deal (client)', dr2.ok, dr2.ok ? '' : JSON.stringify(dr2.error));
+await page.goto('http://127.0.0.1:8080/#/deals'); await sleep(1500);
+const row2b = page.locator('main table tbody tr', { hasText: dealId2 });
+await row2b.locator('input').fill('Does not match the criteria');
+await row2b.locator('button:has-text("Reject")').click(); await sleep(2500);
+const rejectEntry = (await entries()).find((e) => e.event.type === 'DealRejected' && e.event.payload.deal_id === dealId2);
+rec('DealRejected on the relay with a reason_hash', rejectEntry !== undefined && /^[a-f0-9]{64}$/.test(rejectEntry.event.payload.reason_hash ?? ''), JSON.stringify(rejectEntry?.event.payload));
+const reasonSecrets = JSON.parse((await page.evaluate(() => localStorage.getItem('skillx.reason-secrets.v1'))) ?? '[]');
+rec('Rejection reason and salt stored in the browser', reasonSecrets.length === 1 && reasonSecrets[0].deal_id === dealId2 && reasonSecrets[0].reason_text === 'Does not match the criteria');
+await page.goto('http://127.0.0.1:8080/#/deals'); await sleep(1500);
+const row2c = page.locator('main table tbody tr', { hasText: dealId2 });
+await row2c.locator('button:has-text("Open dispute")').click(); await sleep(2500);
+const disputeEntry = (await entries()).find((e) => e.event.type === 'DisputeOpened' && e.event.payload.deal_id === dealId2);
+rec('DisputeOpened on the relay (by = UI key)', disputeEntry !== undefined && disputeEntry.event.payload.by === aPk, JSON.stringify(disputeEntry?.event.payload));
+
 console.log('consoleErrors', errs);
 await browser.close(); process.exit(process.exitCode ?? 0);

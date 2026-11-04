@@ -2,7 +2,7 @@ import type { ApiError, LedgerEntry } from '../types.js';
 import type { Store } from '../state.js';
 import type { ActionContext, ActionResult } from '../actions.js';
 import type { KeyStatus } from '../project.js';
-import type { RandomPort, StoragePort } from '../ports.js';
+import type { CryptoPort, RandomPort, StoragePort } from '../ports.js';
 
 export interface Deps {
   store: Store;
@@ -16,6 +16,7 @@ export interface Deps {
   keyStatusOf: (pubkey: string, entries: readonly LedgerEntry[]) => KeyStatus;
   random: RandomPort;
   storage: StoragePort;
+  crypto: CryptoPort;
 }
 
 export function el<K extends keyof HTMLElementTagNameMap>(

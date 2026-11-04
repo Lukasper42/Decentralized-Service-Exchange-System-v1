@@ -1,7 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { consentDeal, castVote, createAccount, createDeal } from '../actions.js';
+import {
+  acceptDeal,
+  consentDeal,
+  castVote,
+  createAccount,
+  createDeal,
+  fundEscrow,
+  openDispute,
+  rejectDeal,
+  submitDeliverable,
+} from '../actions.js';
 import { RelayClient } from '../relay-client.js';
 import {
   generateKeyPair,
@@ -16,7 +26,7 @@ import {
 import type { ActionContext } from '../actions.js';
 import type { ChainVerifier } from '../verify.js';
 import type { CryptoPort, FetchPort, RandomPort, StoragePort } from '../ports.js';
-import { criteriaCommitment, loadDealSecrets } from '../create-actions.js';
+import { criteriaCommitment, loadDealSecrets, loadReasonSecrets, reasonCommitment } from '../create-actions.js';
 import { hexToBytesLower } from '../crypto.js';
 import type {
   LedgerEntry,
@@ -132,10 +142,10 @@ class FakeRelay {
   }
 }
 
-function makeRelay(s: Setup, opts: FakeRelayOptions = {}): FakeRelay {
+function makeRelay(s: Setup, opts: FakeRelayOptions = {}, actingAs: Pubkey = s.ownKp.publicKey): FakeRelay {
   return new FakeRelay(
     port,
-    s.ownKp.publicKey,
+    actingAs,
     s.relayKp.privateKeyPkcs8,
     s.relayKp.publicKey,
     opts,
@@ -1134,4 +1144,357 @@ test('createDeal: storage failure stops before anything is posted', async () => 
     'STORE_FAILURE',
   );
   assert.equal(relay.postCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// fundEscrow / submitDeliverable / acceptDeal / rejectDeal / openDispute
+// ---------------------------------------------------------------------------
+
+// baseEntries(s) makes deal-1 with seller = ownKp, buyer = otherKp (dealCreatedPayload(seller, buyer)).
+
+function consentedEntries(s: Setup): LedgerEntry[] {
+  return [
+    ...baseEntries(s),
+    makeEntry(s.ownKp.publicKey, 2, 'DealConsented', { deal_id: 'deal-1', seller: s.ownKp.publicKey }),
+  ];
+}
+
+function fundedEntries(s: Setup): LedgerEntry[] {
+  return [
+    ...consentedEntries(s),
+    makeEntry(s.otherKp.publicKey, 3, 'EscrowFunded', { deal_id: 'deal-1', from: s.otherKp.publicKey, amount: 100 }),
+  ];
+}
+
+function deliveredEntries(s: Setup): LedgerEntry[] {
+  return [
+    ...fundedEntries(s),
+    makeEntry(s.ownKp.publicKey, 4, 'DeliverableSubmitted', {
+      deal_id: 'deal-1',
+      content_hash: '2'.repeat(64),
+      precheck_ref: null,
+    }),
+  ];
+}
+
+function rejectedEntries(s: Setup): LedgerEntry[] {
+  return [
+    ...deliveredEntries(s),
+    makeEntry(s.otherKp.publicKey, 5, 'DealRejected', {
+      deal_id: 'deal-1',
+      by: s.otherKp.publicKey,
+      reason_hash: '3'.repeat(64),
+    }),
+  ];
+}
+
+test('fundEscrow: deal not found -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: [],
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await fundEscrow(ctx, 'deal-x'), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('fundEscrow: not the buyer -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: consentedEntries(s),
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await fundEscrow(ctx, 'deal-1'), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('fundEscrow: deal not consented yet -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: baseEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await fundEscrow(ctx, 'deal-1'), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('fundEscrow: success posts EscrowFunded with the deal amount', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s, {}, s.otherKp.publicKey);
+  const ctx = makeCtx({
+    entries: consentedEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  const r = await fundEscrow(ctx, 'deal-1');
+  assert.equal(r.ok, true);
+  const posted = relay.lastPosted;
+  assert.ok(posted !== null);
+  assert.equal(posted.type, 'EscrowFunded');
+  assert.equal(posted.payload['from'], s.otherKp.publicKey);
+  assert.equal(posted.payload['amount'], 100);
+});
+
+test('submitDeliverable: not the seller -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: fundedEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await submitDeliverable(ctx, 'deal-1', '9'.repeat(64)), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('submitDeliverable: wrong state -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: consentedEntries(s),
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await submitDeliverable(ctx, 'deal-1', '9'.repeat(64)), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('submitDeliverable: success posts DeliverableSubmitted with content_hash and null precheck_ref', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: fundedEntries(s),
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  const hash = '9'.repeat(64);
+  const r = await submitDeliverable(ctx, 'deal-1', hash);
+  assert.equal(r.ok, true);
+  const posted = relay.lastPosted;
+  assert.ok(posted !== null);
+  assert.equal(posted.type, 'DeliverableSubmitted');
+  assert.equal(posted.payload['content_hash'], hash);
+  assert.equal(posted.payload['precheck_ref'], null);
+});
+
+test('acceptDeal: not the buyer -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await acceptDeal(ctx, 'deal-1'), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('acceptDeal: wrong state -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: fundedEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await acceptDeal(ctx, 'deal-1'), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('acceptDeal: success posts DealAccepted', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s, {}, s.otherKp.publicKey);
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  const r = await acceptDeal(ctx, 'deal-1');
+  assert.equal(r.ok, true);
+  const posted = relay.lastPosted;
+  assert.ok(posted !== null);
+  assert.equal(posted.type, 'DealAccepted');
+  assert.equal(posted.payload['by'], s.otherKp.publicKey);
+});
+
+test('rejectDeal: posts DealRejected and stores the salt that matches reason_hash', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s, {}, s.otherKp.publicKey);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  const r = await rejectDeal(ctx, { random: countingRandom, storage }, 'deal-1', 'Does not match criteria');
+  assert.equal(r.ok, true);
+  const posted = relay.lastPosted;
+  assert.ok(posted !== null);
+  assert.equal(posted.type, 'DealRejected');
+  assert.equal(posted.payload['by'], s.otherKp.publicKey);
+  const stored = loadReasonSecrets(storage);
+  assert.ok(stored.ok);
+  assert.equal(stored.value.length, 1);
+  const secret = stored.value[0];
+  assert.ok(secret !== undefined);
+  assert.equal(secret.deal_id, 'deal-1');
+  assert.equal(
+    await reasonCommitment(port, hexToBytesLower(secret.salt), secret.reason_text),
+    posted.payload['reason_hash'],
+  );
+});
+
+test('rejectDeal: not the buyer -> STATE, nothing stored', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await rejectDeal(ctx, { random: countingRandom, storage }, 'deal-1', 'reason'),
+    'STATE',
+  );
+  assert.equal(relay.postCount, 0);
+  assert.equal(storage.map.size, 0);
+});
+
+test('rejectDeal: empty reason -> FIELD_FORMAT, nothing stored or posted', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await rejectDeal(ctx, { random: countingRandom, storage }, 'deal-1', '   '),
+    'FIELD_FORMAT',
+  );
+  assert.equal(relay.postCount, 0);
+  assert.equal(storage.map.size, 0);
+});
+
+test('rejectDeal: locked key -> SIGNING, the stored salt is removed again', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: null,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await rejectDeal(ctx, { random: countingRandom, storage }, 'deal-1', 'reason'),
+    'SIGNING',
+  );
+  assert.equal(relay.postCount, 0);
+  assert.equal(storage.map.size, 0);
+});
+
+test('rejectDeal: relay rejection keeps the salt (the event may have been accepted)', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s, {
+    postStatus: 400,
+    postBody: { code: 'LIMIT', message: 'too high', path: 'payload.reason_hash' },
+  }, s.otherKp.publicKey);
+  const storage = memoryStorage();
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(
+    await rejectDeal(ctx, { random: countingRandom, storage }, 'deal-1', 'reason'),
+    'LIMIT',
+  );
+  assert.equal(relay.postCount, 1);
+  const stored = loadReasonSecrets(storage);
+  assert.ok(stored.ok);
+  assert.equal(stored.value.length, 1);
+});
+
+test('openDispute: wrong state -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: deliveredEntries(s),
+    ownPubkey: s.ownKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await openDispute(ctx, 'deal-1'), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('openDispute: neither buyer nor seller -> STATE', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s);
+  const ctx = makeCtx({
+    entries: rejectedEntries(s),
+    ownPubkey: s.foreignKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  expectError(await openDispute(ctx, 'deal-1'), 'STATE');
+  assert.equal(relay.postCount, 0);
+});
+
+test('openDispute: success posts DisputeOpened, seller may also open it', async () => {
+  const s = await setupPromise;
+  const relay = makeRelay(s, {}, s.otherKp.publicKey);
+  const ctx = makeCtx({
+    entries: rejectedEntries(s),
+    ownPubkey: s.otherKp.publicKey,
+    signingKey: s.signingKey,
+    relayPubkey: s.relayKp.publicKey,
+    relay,
+  });
+  const r = await openDispute(ctx, 'deal-1');
+  assert.equal(r.ok, true);
+  const posted = relay.lastPosted;
+  assert.ok(posted !== null);
+  assert.equal(posted.type, 'DisputeOpened');
+  assert.equal(posted.payload['by'], s.otherKp.publicKey);
 });
