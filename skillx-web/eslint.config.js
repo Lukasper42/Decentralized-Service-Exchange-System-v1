@@ -85,6 +85,25 @@ export default tseslint.config(
     },
   },
   {
+    // Selective projections over the 21 protocol event types, not state machines:
+    // each switch intentionally reacts to a handful of types and has a `default: break;` for the rest.
+    files: ['src/project.ts'],
+    rules: {
+      '@typescript-eslint/switch-exhaustiveness-check': 'off',
+    },
+  },
+  {
+    // A plain Node script (no browser DOM, not part of the tsconfig'd app).
+    files: ['serve.mjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
     files: ['**/*.config.{js,mjs,cjs,ts,mts,cts}', 'serve.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },

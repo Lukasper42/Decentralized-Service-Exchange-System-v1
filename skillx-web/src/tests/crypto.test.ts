@@ -51,6 +51,7 @@ test('canonical errors on float, -0, undefined, forbidden keys, cycle', () => {
   const cyc: Record<string, unknown> = {};
   cyc['self'] = cyc;
   assert.throws(() => canonical(cyc), CanonicalError);
+  // eslint-disable-next-line no-sparse-arrays -- the hole itself is what's under test.
   assert.throws(() => canonical([1, , 2] as unknown[]), CanonicalError);
 });
 

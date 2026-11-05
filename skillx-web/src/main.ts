@@ -23,7 +23,6 @@ import type { ActionContext, ActionResult } from './actions.js';
 import type { TimerHandle } from './ports.js';
 import type { ApiError } from './types.js';
 import type { Deps } from './views/common.js';
-import { formatError } from './format.js';
 import { render as renderStatus } from './views/status.js';
 import { render as renderIdentity } from './views/identity.js';
 import { render as renderAccount } from './views/account.js';
@@ -194,7 +193,7 @@ const messagesDeps: MessagesDeps = {
 };
 
 let currentCleanup: (() => void) | null = null;
-let pollHandle: TimerHandle | null = null;
+let pollHandle: TimerHandle = null;
 
 function route(): void {
   const hash = location.hash;
@@ -247,7 +246,6 @@ function boot(): void {
     window.addEventListener(ev, resetIdleTimer);
   }
   route();
-  void formatError; // Format library stays available for error display in the views.
 }
 
 boot();

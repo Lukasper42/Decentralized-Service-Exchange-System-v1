@@ -38,11 +38,11 @@ function encodeValue(value: JsonValue): string {
         }
         return '[' + parts.join(',') + ']';
       }
-      const proto = Object.getPrototypeOf(value);
+      const proto: unknown = Object.getPrototypeOf(value);
       if (proto !== Object.prototype && proto !== null) {
         throw new CanonicalError('NOT_PLAIN_OBJECT');
       }
-      const obj = value as JsonObject;
+      const obj = value;
       const keys = Object.keys(obj).sort();
       const parts: string[] = [];
       for (const key of keys) {
@@ -54,6 +54,10 @@ function encodeValue(value: JsonValue): string {
       }
       return '{' + parts.join(',') + '}';
     }
+    case 'bigint':
+    case 'function':
+    case 'symbol':
+    case 'undefined':
     default: {
       const neverValue: never = value;
       throw new CanonicalError('UNSUPPORTED_TYPE:' + typeof neverValue);

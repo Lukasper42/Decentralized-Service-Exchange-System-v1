@@ -58,9 +58,8 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   let page = 0;
 
   function filtered(): LedgerEntry[] {
-    const entries = deps.store.get().verifier
-      ? [...deps.store.get().verifier!.getEntries()]
-      : [];
+    const verifier = deps.store.get().verifier;
+    const entries = verifier ? [...verifier.getEntries()] : [];
     const rev = entries.reverse();
     const tp = typeSel.value;
     const pk = pkInput.value.trim();

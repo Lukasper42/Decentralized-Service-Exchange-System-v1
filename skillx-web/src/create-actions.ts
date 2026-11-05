@@ -117,7 +117,7 @@ export async function buildAccountCreatedPayload(
     }
     default: {
       const _exhaust: never = status;
-      throw new Error(`Unhandled status: ${_exhaust}`);
+      throw new Error('Unhandled key status');
     }
   }
 }

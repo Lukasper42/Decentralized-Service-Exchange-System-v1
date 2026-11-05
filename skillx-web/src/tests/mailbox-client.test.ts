@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { CryptoPort, FetchInit, FetchPort, FetchResponseLike } from '../ports.js';
+import type { CryptoPort, FetchPort, FetchResponseLike } from '../ports.js';
 import { MailboxClient } from '../mailbox-client.js';
 import { b64Encode } from '../crypto.js';
 import { mailboxId } from '../mailbox-crypto.js';
@@ -211,15 +211,6 @@ test('client constructor rejects invalid base URL', () => {
   const fetchPort: FetchPort = async () => response(200, {});
   assert.throws(() => new MailboxClient('not-a-url', fetchPort));
 });
-
-function b64ToArray(value: string): Uint8Array {
-  const binary = atob(value);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    out[i] = binary.charCodeAt(i);
-  }
-  return out;
-}
 
 test('client getKeyBundle rejects a substituted bundle', async () => {
   const identity = await makeIdentityPubkey();

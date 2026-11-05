@@ -13,7 +13,7 @@ import {
   generateKeyPair,
   importNonExtractablePrivate,
 } from './crypto.js';
-import { GuardError, field, guardIso, guardPositiveInt, guardString, isRecord } from './guards.js';
+import { GuardError, field, guardPositiveInt, guardString, isRecord } from './guards.js';
 
 export const PBKDF2_ITERATIONS = 600000;
 export const VAULT_STORAGE_KEY = 'skillx.vault.v1';
@@ -70,10 +70,9 @@ async function deriveKey(
 export async function createVault(
   crypto: CryptoPort,
   random: RandomPort,
-  clock: ClockPort,
+  _clock: ClockPort,
   password: string,
 ): Promise<Result<{ vault: Vault; publicKey: string }>> {
-  void clock;
   if (password.length < MIN_PASSWORD_LENGTH) {
     return err('POLICY', `Password must be at least ${MIN_PASSWORD_LENGTH} characters`, '$.vault.password');
   }
@@ -84,7 +83,7 @@ export async function createVault(
   const ct = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: iv as unknown as ArrayBuffer },
     key,
-    new TextEncoder().encode(pair.privateKeyPkcs8) as unknown as ArrayBuffer,
+    new TextEncoder().encode(pair.privateKeyPkcs8),
   );
   const file: VaultFile = {
     v: 1,
@@ -247,7 +246,6 @@ export function loadVault(storage: StoragePort): Result<Vault> {
     if (!imported.ok) {
       return imported;
     }
-    void guardIso;
     return ok({ publicKey, file: imported.value });
   } catch (e) {
     if (e instanceof GuardError) {
