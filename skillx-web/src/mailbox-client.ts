@@ -9,10 +9,6 @@ interface KeyBundleResponse {
   status: number;
 }
 
-interface SendResponse {
-  id: string;
-}
-
 interface MessageEntry {
   seq: number;
   id: string;
@@ -26,11 +22,6 @@ interface FetchMessagesResponse {
 
 interface DeleteResponse {
   status: number;
-}
-
-interface ApiErrorBody {
-  code: string;
-  message: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

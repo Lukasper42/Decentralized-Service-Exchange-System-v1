@@ -128,7 +128,7 @@ export class ChainVerifier {
     }
 
     // 2. Event signature
-    let eventSigOk = false;
+    let eventSigOk: boolean;
     try {
       eventSigOk = await verifyEvent(this.port, event);
     } catch {

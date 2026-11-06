@@ -147,10 +147,10 @@ export function b64Encode(bytes: Uint8Array): string {
     const b1 = i + 1 < len ? (bytes[i + 1] ?? 0) : 0;
     const b2 = i + 2 < len ? (bytes[i + 2] ?? 0) : 0;
     const n = (b0 << 16) | (b1 << 8) | b2;
-    out += B64_CHARS[(n >> 18) & 63];
-    out += B64_CHARS[(n >> 12) & 63];
-    out += i + 1 < len ? B64_CHARS[(n >> 6) & 63] : '=';
-    out += i + 2 < len ? B64_CHARS[n & 63] : '=';
+    out += B64_CHARS[(n >> 18) & 63] ?? '';
+    out += B64_CHARS[(n >> 12) & 63] ?? '';
+    out += i + 1 < len ? (B64_CHARS[(n >> 6) & 63] ?? '') : '=';
+    out += i + 2 < len ? (B64_CHARS[n & 63] ?? '') : '=';
   }
   return out;
 }
@@ -464,7 +464,7 @@ export async function signEvent(
   privateKeyPkcs8: string,
   event: Omit<SignedEvent, 'signature'>,
 ): Promise<SignedEvent> {
-  const msg = signatureMessage(event as unknown as Record<string, unknown>);
+  const msg = signatureMessage(event);
   const signature = await signWithPrivateKey(port, privateKeyPkcs8, msg);
   return { ...event, signature };
 }
@@ -474,7 +474,7 @@ export async function signEventWithKey(
   key: CryptoKey,
   event: Omit<SignedEvent, 'signature'>,
 ): Promise<SignedEvent> {
-  const msg = signatureMessage(event as unknown as Record<string, unknown>);
+  const msg = signatureMessage(event);
   const signature = await signWithNonExtractable(port, key, msg);
   return { ...event, signature };
 }
@@ -492,7 +492,7 @@ export async function signReceipt(
   privateKeyPkcs8: string,
   receipt: Omit<Receipt, 'signature'>,
 ): Promise<Receipt> {
-  const msg = signatureMessage(receipt as unknown as Record<string, unknown>);
+  const msg = signatureMessage(receipt);
   const signature = await signWithPrivateKey(port, privateKeyPkcs8, msg);
   const full: Receipt = { ...receipt, signature };
   checkReceiptShape(full);

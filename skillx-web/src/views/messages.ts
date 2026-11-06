@@ -12,7 +12,6 @@ import {
   openMessage,
   sealMessage
 } from '../mailbox-crypto.js';
-import type { Envelope } from '../mailbox-crypto.js';
 import type { MessagesStore } from '../messages-store.js';
 import type { StoredMessage } from '../messages-store.js';
 
@@ -62,10 +61,10 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   const urlSection = el('section', 'mailbox-url');
   const urlLabel = el('label');
   text(urlLabel, 'Mailbox URL');
-  const urlInput = el('input') as HTMLInputElement;
+  const urlInput = el('input');
   urlInput.value = baseUrl;
   urlInput.placeholder = 'https://…';
-  const urlButton = el('button') as HTMLButtonElement;
+  const urlButton = el('button');
   text(urlButton, 'Save URL');
   urlButton.addEventListener('click', () => {
     const checked = checkRelayUrl(urlInput.value.trim());
@@ -82,7 +81,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   container.append(urlSection);
 
   const keySection = el('section', 'key-bundle');
-  const keyButton = el('button') as HTMLButtonElement;
+  const keyButton = el('button');
   text(keyButton, 'Publish key bundle');
   const keyStatus = el('div', 'key-status');
   text(keyStatus, '');
@@ -130,11 +129,11 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   const sendSection = el('section', 'send-message');
   const recipientLabel = el('label');
   text(recipientLabel, 'Recipient (identity pubkey)');
-  const recipientInput = el('input') as HTMLInputElement;
+  const recipientInput = el('input');
   const bodyLabel = el('label');
   text(bodyLabel, 'Text');
-  const bodyInput = el('textarea') as HTMLTextAreaElement;
-  const sendButton = el('button') as HTMLButtonElement;
+  const bodyInput = el('textarea');
+  const sendButton = el('button');
   text(sendButton, 'Send');
   sendButton.addEventListener('click', () => {
     void (async () => {
@@ -204,7 +203,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   container.append(sendSection);
 
   const inboxSection = el('section', 'inbox');
-  const inboxButton = el('button') as HTMLButtonElement;
+  const inboxButton = el('button');
   text(inboxButton, 'Fetch inbox');
   const inboxList = el('div', 'inbox-list');
   const inboxStatus = el('div', 'inbox-status');
@@ -233,7 +232,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         text(body, message.body);
         row.append(body);
         if (message.direction === 'in') {
-          const deleteButton = el('button') as HTMLButtonElement;
+          const deleteButton = el('button');
           text(deleteButton, 'Delete');
           deleteButton.addEventListener('click', () => {
             void (async () => {
