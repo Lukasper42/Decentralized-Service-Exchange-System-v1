@@ -134,6 +134,9 @@ async function main() {
     }
 
     if (phase === 'finish') {
+      if (tipInfo.tipSequence !== EXPECTED_SETUP_TIP + 1) {
+        throw new Error(`Finish refused: expected relay tip ${EXPECTED_SETUP_TIP + 1} after Juror 1's UI vote, got ${tipInfo.tipSequence}. Inspect the ledger first.`);
+      }
       const page = await getJson('/v1/entries?from=1&to=500');
       if (!Array.isArray(page.entries)) throw new Error('Relay entries response is invalid.');
       const events = page.entries.map((entry) => entry && entry.event).filter(Boolean);
@@ -308,15 +311,9 @@ async function main() {
           deal_id: DEAL_ID, juror: j2.publicKey, vote: 'buyer', appeal_round: 0,
         }, j2.privateKey),
       });
-      await step('j3 castVote (seller)', 'j3', 'JuryVoted', {
-        deal_id: DEAL_ID,
-        juror: j3.publicKey,
-        vote: 'seller',
-        appeal_round: 0,
-        sig: signAttestation('jury-vote', {
-          deal_id: DEAL_ID, juror: j3.publicKey, vote: 'seller', appeal_round: 0,
-        }, j3.privateKey),
-      });
+      await sync('j3');
+      writesStarted = true;
+      requireOk('j3 castVote (seller)', await cl.j3.castVote(DEAL_ID, 'seller'));
       await step('DisputeResolved (2:1 buyer)', 'j2', 'DisputeResolved', {
         deal_id: DEAL_ID, outcome: 'buyer', appeal_round: 0,
       });
