@@ -1,84 +1,98 @@
 # SkillX serverless runtime plan
 
-Status: design for the isolated branch `feat/serverless-supabase-runtime`.
-This document does not apply database migrations, create credentials, or change the existing local partner-test environment.
+Status: isolated implementation branch `feat/serverless-supabase-runtime`.
+This document does not change the existing local C8 partner-test files or Tailscale routes.
 
 ## Goal and constraints
 
-Provide public preview endpoints for the existing SkillX web client using only the existing Vercel Hobby project and the existing Supabase Free project. The intended runtime is Vercel Node.js Functions plus Supabase PostgreSQL. There is no always-on server process.
+Provide public preview endpoints for the existing SkillX web client using only the existing Vercel Hobby project and the existing Supabase Free project. The runtime is Vercel Node.js Functions plus Supabase PostgreSQL; there is no always-on server process.
 
 Hard constraints:
-- Keep the total hosting budget at USD 0/month. Do not activate billing, purchase a domain, or add paid integrations.
-- Keep the existing local C8 partner test, its relay identity, genesis, ledger, mailbox data, and Tailscale routes unchanged.
+- Total hosting budget remains USD 0/month. Do not activate billing, purchase a domain, or add paid integrations.
+- Keep the existing local partner-test files and mailbox data unchanged.
 - Use the existing Supabase project `ppfimytabiidxlklfcah`; do not create another project.
 - Keep runtime tables separate from the existing Notion/documentation data.
-- Do not expose Supabase secret/service-role credentials to the browser.
-- Do not advertise this codebase as production-ready for real balances or dispute resolution; the current project README explicitly says it has no external security review or load testing.
+- Never expose a Supabase service-role/secret key to browser code, GitHub, or chat.
+- Do not present this software as production-ready for real balances or dispute resolution; it has no external security review or load testing.
 
 ## Deployment shape
 
 - The Vercel project remains rooted at `skillx-web`.
-- Node.js function entrypoints will live under `skillx-web/api/`:
-  - `/api/relay/*` forwards to the existing Relay HTTP contract.
-  - `/api/mailbox/*` forwards to the existing Mailbox HTTP contract.
-- The Vercel project will need permission to include source files outside its root directory, because the authoritative Relay and Mailbox implementations live in sibling folders. This is a Vercel project setting and must be changed only after the function build has been prepared for preview.
-- The browser will call Vercel endpoints only. Supabase credentials stay in server-side Vercel environment variables.
+- `/api/relay/*` and `/api/mailbox/*` preserve the existing HTTP contracts.
+- Browser code calls Vercel endpoints only. Supabase service credentials stay server-side.
+- Relay and mailbox implementations remain in their existing source packages and are imported by the Vercel functions.
+
+## Chosen C8 migration source
+
+The public test runtime must preserve the previously verified C8 partner snapshot, not create a fresh ledger or new relay identity.
+
+Migration source files were copied byte-for-byte to the separate local directory:
+`SkillX-C8-Migration-Source-20261114`
+
+Files and hashes:
+- `genesis-partner.json`: `83f14d9597da29209433c181c21f3af9fdf47268cd1cbf46798831142e5895c8`
+- `relay-export-20261107-160504.json`: `759536cfe18458c6e98a7f65757bc4092ddaf50a88aa9ed601f9897b43bdb5a6`
+- `mailbox.json`: `97ef3bf2f46baae2c5d7f6ce7a343c503ec93e6d172dde3e0a680b92533612c1`
+
+Validation completed:
+- The partner Genesis replays the one-entry export successfully and produces the exact stored snapshot state hash.
+- The export has one `AccountCreated` event at receipt sequence 1. It is not the later full jury-test history.
+- The event signer matches mailbox identity suffix `f5c3ef02`.
+- The receipt key ID matches the relay key in the partner Genesis.
+- Both mailbox key-bundle signatures and IDs validate; both original encrypted messages and sequence counters validate.
+- The second mailbox identity `b09772b0` is retained in the mailbox migration, although it is not one of the partner Genesis accounts.
+
+The existing C8 relay key must be used with `genesis-partner.json` so the stored receipt remains verifiable and subsequent relay receipts continue the same identity chain. No replacement relay key or genesis is planned.
 
 ## Database access strategy
 
-Use Supabase's HTTPS Data API and PostgreSQL RPC functions from the Vercel Functions, rather than keeping a Node `pg` connection open.
+Use the Supabase HTTPS Data API and narrowly scoped PostgreSQL RPCs from Vercel Functions, not a persistent Node `pg` pool. Vercel invocations are transient; the existing Relay `PostgresStore` depends on a session-level advisory lock and is unsuitable for this runtime.
 
-Reasons:
-- Vercel invocations are transient; the current Relay `PostgresStore` holds a session-level advisory lock across the process lifetime.
-- Supabase transaction pooling is intended for short-lived/serverless connections and does not support session-level advisory locks.
-- Database RPC calls let each critical write execute atomically inside one PostgreSQL transaction.
+All runtime data is isolated in a new private schema named `skillx_runtime`; existing `public` and `skillx` Notion data is not modified. Runtime tables have RLS enabled, no anon/authenticated table grants, and no public policies. RPC functions in `public` revoke execution from `PUBLIC`, `anon`, and `authenticated`; only the Vercel server-side `service_role` can execute them.
 
-Runtime data belongs in a new private schema named `skillx_runtime`, not in the existing `public` or `skillx` data schemas. RPC functions exposed through the Data API will be narrowly scoped, with execution revoked from `PUBLIC`, `anon`, and `authenticated`, and granted only to the server-side `service_role`. Runtime tables will have RLS enabled and no public policies. The service-role key must never be included in frontend code, browser storage, or a `NEXT_PUBLIC_*` variable.
+The service-role key must never be included in frontend code, browser storage, GitHub commits, or a `NEXT_PUBLIC_*` variable.
 
 ## Relay persistence and concurrency
 
-The runtime ledger table will preserve the current append-only entry format:
-- sequence
-- event hash
-- signer
-- previous signer hash
-- checksum
-- canonical JSON containing the signed event and signed receipt
-
-A singleton guard row will serialize writes. The append RPC will lock it with `FOR UPDATE`, then validate the expected next sequence and the signer's current tip before inserting. Unique constraints will independently prevent duplicate event hashes, duplicate sequences, and signer-chain forks. An append-only trigger will reject updates and deletes.
-
-Each invocation will load the ledger snapshot, verify stored checksums/canonical JSON, replay and verify the ledger using the existing code, and only then serve the request. A stale concurrent invocation must fail its compare-and-append check rather than produce a fork. The caller can retry; on retry an already committed event is detected as a duplicate.
-
-This initial implementation favours correctness and a small test workload over large-ledger performance. Loading/replaying the complete ledger on each invocation is not intended for a large public deployment.
+- Store the canonical signed event + receipt JSON, checksum, sequence, event hash, signer, and previous signer hash.
+- A singleton write guard serializes ledger appends. The append RPC checks the next global sequence and signer tip inside the same transaction.
+- Each request loads and verifies the complete persisted ledger before serving it. This initial implementation is intended for a very small partner test, not a large ledger.
+- The verified one-entry snapshot is inserted through a one-time import RPC that refuses to run if ledger/mailbox business data already exists. After successful import and readback verification, remove that import function.
 
 ## Mailbox persistence
 
-The mailbox adapter will preserve the existing protocol and limits:
-- key bundles remain self-signed public metadata;
-- envelopes remain end-to-end encrypted; the server must not see plaintext;
-- 14-day message TTL;
-- maximum 200 retained messages per mailbox;
-- maximum 10,000 registered mailbox keys;
-- maximum 60 message posts per mailbox per minute;
-- monotonically increasing per-mailbox message sequence numbers, including after deletion/expiry.
+Preserve the existing mailbox protocol and state:
+- both public key bundles;
+- original message IDs, encrypted envelopes, stored timestamps, and sequence numbers;
+- monotonically increasing mailbox counters;
+- the existing 14-day TTL, 200-message cap, 10,000-key cap, and 60-posts/minute limit.
 
-These limits and counters must be enforced by transactional database RPCs, not only by in-memory state, because separate serverless invocations do not share reliable process memory.
+The server continues to store only encrypted message envelopes; it must not receive plaintext. The import RPC is one-time and transactionally seeds the keys, counters, and messages without changing IDs or timestamps.
 
-## New public relay identity
+## Safe rollout and local cutover
 
-The public test runtime must use a relay key and genesis that are independent of the still-running local C8 relay. Reusing one private relay key across two independent ledgers could produce conflicting receipt histories. The new private key will be generated locally and entered directly into Vercel's server-side environment settings; it must never be sent through chat or committed to GitHub. The matching public key/genesis data can be reviewed separately before deployment.
+The local Relay, mailbox service, web UI, and Tailscale routes remain untouched while the public runtime is prepared.
+
+Because the public runtime preserves the C8 relay identity and mailbox IDs, two writable copies must not be used concurrently:
+1. Import the verified snapshot and run read-only public health, tip, ledger-replay, and mailbox readback checks.
+2. Keep the public endpoints unavailable to partner writes during this validation stage.
+3. Before the partner begins using the public endpoints, stop the local Relay and local mailbox processes without deleting or modifying their files. This prevents two independent runtimes from creating divergent relay receipts or mailbox sequences under the same identities.
+4. Once public writes begin, do not resume local writes from the old copy. Keep the local migration source and original local files as backups.
+5. If public validation fails before cutover, leave the local services running and roll back only the public preview configuration/data, not the local test environment.
 
 ## Rollout gates
 
-1. Complete the adapters and handlers in this branch; add tests for concurrency, sequence continuity, mailbox limits, expiry, and protocol compatibility.
-2. Review the exact SQL/RPC definition and security grants. No database changes are applied until the SQL is reviewed.
-3. Verify Vercel preview builds without changing the existing master deployment.
-4. Apply the runtime schema to the existing Supabase project only after explicit approval, then verify it with read-only queries and tests.
-5. Add server-only Vercel environment variables without printing their values, deploy a branch preview, and test health/read/write/readback behaviour.
-6. Only consider a public production rollout after the partner test passes and free-tier limits, inactivity pausing, and lack of automatic free-tier backups are understood.
+1. Finish and test the request-scoped Supabase adapters and Vercel API handlers.
+2. Review the complete SQL, RLS, schema grants, RPC grants, and one-time import path before applying anything.
+3. Confirm the Vercel preview build without changing the existing master/production deployment.
+4. Apply the private runtime schema only to the existing Supabase project after approval.
+5. Import the local migration-source files through a server-side one-time RPC; verify row counts, checksums, original IDs, sequence counters, and replayed state hash.
+6. Remove the one-time import RPC after verification.
+7. Add only server-side Vercel environment variables, deploy a branch preview, and perform read-only validation before the local-to-public cutover.
+8. Only consider public partner writes after the local Relay and mailbox are stopped and the partner is ready to use the public service.
 
-## Known free-tier constraints
+## Free-tier limits
 
-A USD 0/month setup is necessarily quota-limited. Vercel and Supabase free tiers can impose invocation, compute, storage, and inactivity constraints; an inactive Supabase project may pause. The free setup must fail safely or be taken offline when limits are reached. It cannot promise uninterrupted service or unlimited public usage.
+A USD 0/month setup is quota-limited. Supabase Free projects may pause after inactivity and do not include automatic backups; Vercel and Supabase limits can restrict invocation, compute, and storage. The service cannot promise uninterrupted service or unlimited public usage.
 
-No domain purchase, billing activation, paid service, database migration, or production deployment is part of this plan.
+No domain purchase, billing activation, paid service, new Supabase project, fresh Genesis, replacement Relay key, or production deployment is part of this plan.
