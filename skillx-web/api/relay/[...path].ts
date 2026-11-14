@@ -179,7 +179,10 @@ async function handle(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   if (!url.pathname.startsWith(PREFIX)) return apiError('NOT_FOUND', 'No such route', '', 404, origin);
-  const path = url.pathname.slice(PREFIX.length) || '/';
+  const rewrittenPath = url.searchParams.get('__route');
+  const path = rewrittenPath !== null
+    ? `/${rewrittenPath.replace(/^\\/+/, '')}`
+    : url.pathname.slice(PREFIX.length) || '/';
 
   // Vercel overwrites x-forwarded-for with the actual public client IP. Only a
   // one-way hash is persisted in short-lived rate buckets; raw IPs are not stored.
