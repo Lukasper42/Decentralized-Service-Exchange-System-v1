@@ -41,7 +41,8 @@ const ALLOWED_FUNCTIONS = new Set([
 
 /**
  * Minimal server-only Supabase Data API caller.
- * The service-role key must only be read from a Vercel server environment variable.
+ * The Supabase secret key must only be read from a Vercel server environment variable.
+ * It is sent only as `apikey`, never as a Bearer token (new secret keys are not JWTs).
  * Never instantiate this module in browser code or expose its headers to the client.
  */
 export class SupabaseRpcClient implements SupabaseRpcPort {
