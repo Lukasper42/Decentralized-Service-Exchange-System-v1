@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { ApiError, parseStoredMessage } from './protocol.js';
 import type { Envelope, KeyBundle, StoredMessage } from './protocol.js';
-import type { SupabaseRpcPort } from '../../skill-exchange-ledger/packages/relay/src/supabase-ledger-store.js';
+export interface MailboxRpcPort {
+  rpc<T = unknown>(
+    functionName: string,
+    args?: Readonly<Record<string, unknown>>,
+  ): Promise<T>;
+}
 
 export interface MailboxClock {
   nowMs(): number;
@@ -39,10 +44,10 @@ function apiErrorFor(error: unknown): ApiError | MailboxStorageUnavailableError 
  * delegates its atomic work to a PostgreSQL function in the private runtime schema.
  */
 export class SupabaseMailboxStore {
-  private readonly rpc: SupabaseRpcPort;
+  private readonly rpc: MailboxRpcPort;
   private readonly clock: MailboxClock;
 
-  constructor(rpc: SupabaseRpcPort, clock: MailboxClock) {
+  constructor(rpc: MailboxRpcPort, clock: MailboxClock) {
     this.rpc = rpc;
     this.clock = clock;
   }
