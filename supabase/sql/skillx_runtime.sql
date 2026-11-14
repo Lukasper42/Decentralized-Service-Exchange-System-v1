@@ -242,8 +242,10 @@ begin
     raise exception 'invalid mailbox message arguments' using errcode = '22023';
   end if;
 
-  perform 1 from skillx_runtime.write_guard where id = 1 for update;
-  if not exists (select 1 from skillx_runtime.mailbox_keys where mailbox_id = p_mailbox_id) then
+  -- Serialize message posting per mailbox, not globally across all mailboxes.
+  perform 1 from skillx_runtime.mailbox_counters
+    where mailbox_id = p_mailbox_id for update;
+  if not found then
     raise exception 'no key bundle for mailbox' using errcode = 'P0002';
   end if;
 
@@ -303,7 +305,10 @@ begin
     raise exception 'invalid mailbox query' using errcode = '22023';
   end if;
 
-  perform 1 from skillx_runtime.write_guard where id = 1 for update;
+  -- A mailbox-local counter lock keeps this cleanup consistent with concurrent posts
+  -- without serializing unrelated mailboxes or relay-ledger writes.
+  perform 1 from skillx_runtime.mailbox_counters
+    where mailbox_id = p_mailbox_id for update;
   delete from skillx_runtime.mailbox_messages
     where mailbox_id = p_mailbox_id
       and p_now - stored_at >= 1209600000;
@@ -343,7 +348,9 @@ begin
     raise exception 'invalid timestamp' using errcode = '22023';
   end if;
 
-  perform 1 from skillx_runtime.write_guard where id = 1 for update;
+  -- Serialize deletion with inserts for this mailbox only.
+  perform 1 from skillx_runtime.mailbox_counters
+    where mailbox_id = p_mailbox_id for update;
   delete from skillx_runtime.mailbox_messages
     where mailbox_id = p_mailbox_id and p_now - stored_at >= 1209600000;
   delete from skillx_runtime.mailbox_messages
