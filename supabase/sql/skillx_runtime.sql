@@ -173,7 +173,7 @@ returns boolean
 language plpgsql
 security invoker
 set search_path = ''
-as $
+as $$
 declare
   v_window_start bigint;
   v_count integer;
@@ -217,7 +217,7 @@ begin
     where window_start_ms < v_window_start - (p_window_ms * 2);
   return true;
 end;
-$;
+$$;
 
 create or replace function public.skillx_runtime_mailbox_get_key(p_mailbox_id text)
 returns jsonb
@@ -438,15 +438,14 @@ returns jsonb
 language plpgsql
 security invoker
 set search_path = ''
-as $
+as $$
 declare
   v_row record;
-  v_mailbox_id text;
   v_last_seq bigint;
   v_ledger_count integer := 0;
   v_key_count integer := 0;
   v_message_count integer := 0;
-  v_sequence_count integer := 0;
+  v_sequence_count bigint := 0;
 begin
   if jsonb_typeof(p_ledger_entries) is distinct from 'array'
      or jsonb_typeof(p_mailbox_keys) is distinct from 'array'
@@ -477,53 +476,10 @@ begin
       entry_json text
     )
   loop
-    if v_row.sequence <> v_ledger_count + 1
-       or v_row.event_hash !~ '^[0-9a-f]{64} Only the server-side Vercel service role can access its tables.
-revoke all on function public.skillx_runtime_import_seed(jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated;
-
-revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
-
-grant execute on function public.skillx_runtime_import_seed(jsonb, jsonb, jsonb, jsonb) to service_role;
-
-grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
-grant execute on function public.skillx_runtime_ledger_load() to service_role;
-grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
-
-commit;
-
-       or v_row.checksum !~ '^[0-9a-f]{64} Only the server-side Vercel service role can access its tables.
-revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
-
-grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
-grant execute on function public.skillx_runtime_ledger_load() to service_role;
-grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
-
-commit;
-
+    if v_row.sequence is null
+       or v_row.sequence <> v_ledger_count + 1
+       or v_row.event_hash is null or v_row.event_hash !~ '^[0-9a-f]{64}$'
+       or v_row.checksum is null or v_row.checksum !~ '^[0-9a-f]{64}$'
        or v_row.signer is null or length(v_row.signer) = 0
        or v_row.entry_json is null then
       raise exception 'invalid or non-contiguous migration ledger entry' using errcode = '22023';
@@ -547,27 +503,7 @@ commit;
       sig text
     )
   loop
-    if v_row.mailbox_id !~ '^[0-9a-f]{64} Only the server-side Vercel service role can access its tables.
-revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
-
-grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
-grant execute on function public.skillx_runtime_ledger_load() to service_role;
-grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
-
-commit;
-
+    if v_row.mailbox_id is null or v_row.mailbox_id !~ '^[0-9a-f]{64}$'
        or v_row.identity_pubkey is null
        or v_row.x_pubkey is null
        or v_row.created_at is null
@@ -609,28 +545,8 @@ commit;
   loop
     if v_row.mailbox_id is null
        or v_row.seq is null or v_row.seq < 1
-       or v_row.id !~ '^[0-9a-f]{32} Only the server-side Vercel service role can access its tables.
-revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
-revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
-revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
-
-grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
-grant execute on function public.skillx_runtime_ledger_load() to service_role;
-grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
-grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
-grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
-
-commit;
-
-       or v_row.envelope is null
+       or v_row.id is null or v_row.id !~ '^[0-9a-f]{32}$'
+       or v_row.envelope is null or jsonb_typeof(v_row.envelope) is distinct from 'object'
        or v_row.stored_at is null or v_row.stored_at < 0 then
       raise exception 'invalid migration mailbox message' using errcode = '22023';
     end if;
@@ -659,10 +575,9 @@ commit;
     'mailbox_messages', v_message_count
   );
 end;
-$;
-
-
+$$;
 -- The runtime schema is private. Only the server-side Vercel service role can access its tables.
+revoke all on function public.skillx_runtime_import_seed(jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
 revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
 revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
@@ -672,6 +587,7 @@ revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jso
 revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
 revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
 
+grant execute on function public.skillx_runtime_import_seed(jsonb, jsonb, jsonb, jsonb) to service_role;
 grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
 grant execute on function public.skillx_runtime_ledger_load() to service_role;
 grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
