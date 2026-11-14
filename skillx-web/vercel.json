@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/relay/**/*.ts": {
+      "maxDuration": 60
+    },
+    "api/mailbox/**/*.ts": {
+      "maxDuration": 30
+    }
+  }
+}
