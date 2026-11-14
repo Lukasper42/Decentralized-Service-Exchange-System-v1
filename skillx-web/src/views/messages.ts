@@ -14,6 +14,7 @@ import {
 } from '../mailbox-crypto.js';
 import type { MessagesStore } from '../messages-store.js';
 import type { StoredMessage } from '../messages-store.js';
+import type { Envelope } from '../mailbox-crypto.js';
 
 export interface Deps {
   crypto: CryptoPort;
@@ -27,11 +28,28 @@ export interface Deps {
 
 const URL_KEY = 'skillx.mailbox.url';
 
+interface PendingSend {
+  identityPubkey: string;
+  recipientPubkey: string;
+  mailboxUrl: string;
+  body: string;
+  mailboxId: string;
+  envelope: Envelope;
+  idempotencyKey: string;
+}
+
+function makeIdempotencyKey(random: RandomPort): string {
+  const bytes = random.bytes(16);
+  if (bytes.length !== 16) throw new Error('random source returned an invalid id');
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function render(root: HTMLElement, deps: Deps): () => void {
   const store = deps.messages;
   let baseUrl = deps.storage.get(URL_KEY) ?? '';
   let client: MailboxClient | null = null;
   let lastSeq = 0;
+  let pendingSend: PendingSend | null = null;
 
   const container = el('div', 'messages-view');
   const title = el('h2');
@@ -135,7 +153,21 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   const bodyInput = el('textarea');
   const sendButton = el('button');
   text(sendButton, 'Send');
+  const discardPendingButton = el('button');
+  text(discardPendingButton, 'Discard pending retry');
+  discardPendingButton.hidden = true;
+  discardPendingButton.addEventListener('click', () => {
+    if (pendingSend === null) return;
+    pendingSend = null;
+    discardPendingButton.hidden = true;
+    setStatus('Pending retry discarded. The previous message may already have been delivered.');
+  });
+
+  let sending = false;
   sendButton.addEventListener('click', () => {
+    if (sending) return;
+    sending = true;
+    sendButton.disabled = true;
     void (async () => {
       const identity = deps.getIdentity();
       if (identity === null) {
@@ -161,28 +193,61 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         setStatus('Invalid recipient pubkey (expected: Base64, 44 bytes SPKI).');
         return;
       }
+
       try {
-        const recipientMailboxId = await mailboxId(deps.crypto, recipient);
-        const bundleResult = await mailboxClient.getKeyBundle(recipientMailboxId);
-        if (!bundleResult.ok) {
-          setStatus(bundleLookupMessage(bundleResult.error.code));
-          return;
+        let recipientMailboxId: string;
+        let envelope: Envelope;
+        let idempotencyKey: string;
+
+        if (pendingSend !== null) {
+          if (pendingSend.identityPubkey !== identity.pubkey ||
+              pendingSend.recipientPubkey !== recipient ||
+              pendingSend.mailboxUrl !== baseUrl ||
+              pendingSend.body !== body) {
+            setStatus('A previous send has an uncertain result. Retry with the same recipient and text, or discard that pending retry first.');
+            return;
+          }
+          recipientMailboxId = pendingSend.mailboxId;
+          envelope = pendingSend.envelope;
+          idempotencyKey = pendingSend.idempotencyKey;
+        } else {
+          recipientMailboxId = await mailboxId(deps.crypto, recipient);
+          const bundleResult = await mailboxClient.getKeyBundle(recipientMailboxId);
+          if (!bundleResult.ok) {
+            setStatus(bundleLookupMessage(bundleResult.error.code));
+            return;
+          }
+          const sealed = await sealMessage(deps.crypto, deps.random, deps.clock, {
+            from: identity.pubkey,
+            edKey: identity.edKey,
+            recipientBundle: bundleResult.value,
+            body
+          });
+          if (!sealed.ok) {
+            setStatus(`Senden: ${sealed.error.code} ${sealed.error.message}`);
+            return;
+          }
+          envelope = sealed.value;
+          idempotencyKey = makeIdempotencyKey(deps.random);
+          pendingSend = {
+            identityPubkey: identity.pubkey,
+            recipientPubkey: recipient,
+            mailboxUrl: baseUrl,
+            body,
+            mailboxId: recipientMailboxId,
+            envelope,
+            idempotencyKey,
+          };
+          discardPendingButton.hidden = false;
         }
-        const sealed = await sealMessage(deps.crypto, deps.random, deps.clock, {
-          from: identity.pubkey,
-          edKey: identity.edKey,
-          recipientBundle: bundleResult.value,
-          body
-        });
-        if (!sealed.ok) {
-          setStatus(`Senden: ${sealed.error.code} ${sealed.error.message}`);
-          return;
-        }
-        const sendResult = await mailboxClient.send(recipientMailboxId, sealed.value);
+
+        const sendResult = await mailboxClient.send(recipientMailboxId, envelope, idempotencyKey);
         if (!sendResult.ok) {
-          setStatus(`Senden: ${sendResult.error.code} ${sendResult.error.message}`);
+          setStatus(`Senden: ${sendResult.error.code} ${sendResult.error.message}. Retry with the same recipient and text to safely repeat this request.`);
           return;
         }
+        pendingSend = null;
+        discardPendingButton.hidden = true;
         const stored: StoredMessage = {
           serverId: sendResult.value,
           peer: recipient,
@@ -195,11 +260,14 @@ export function render(root: HTMLElement, deps: Deps): () => void {
         bodyInput.value = '';
         setStatus(`Sent (${sendResult.value}).`);
       } catch {
-        setStatus('Sending failed.');
+        setStatus('Sending failed. Retry with the same recipient and text to avoid creating a duplicate.');
       }
-    })();
+    })().finally(() => {
+      sending = false;
+      sendButton.disabled = false;
+    });
   });
-  sendSection.append(recipientLabel, recipientInput, bodyLabel, bodyInput, sendButton);
+  sendSection.append(recipientLabel, recipientInput, bodyLabel, bodyInput, sendButton, discardPendingButton);
   container.append(sendSection);
 
   const inboxSection = el('section', 'inbox');
