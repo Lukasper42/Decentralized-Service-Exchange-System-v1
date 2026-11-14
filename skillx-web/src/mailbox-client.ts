@@ -189,15 +189,23 @@ export class MailboxClient {
     return ok(bundle);
   }
 
-  async send(mailboxId: string, envelope: Envelope): Promise<Result<string>> {
+  async send(
+    mailboxId: string,
+    envelope: Envelope,
+    idempotencyKey?: string
+  ): Promise<Result<string>> {
     if (!isMailboxId(mailboxId)) {
       return err('FIELD_FORMAT', 'invalid mailbox id', '/v1/mailbox');
     }
     if (!isEnvelope(envelope)) {
       return err('FIELD_FORMAT', 'invalid envelope', '/v1/mailbox');
     }
+    if (idempotencyKey !== undefined && !/^[0-9a-f]{32}$/.test(idempotencyKey)) {
+      return err('FIELD_FORMAT', 'invalid idempotency key', '/v1/mailbox');
+    }
     const path = `/v1/mailbox/${encodeURIComponent(mailboxId)}`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idempotencyKey !== undefined) headers['Idempotency-Key'] = idempotencyKey;
     const result = await this.call(path, {
       method: 'POST',
       headers,
