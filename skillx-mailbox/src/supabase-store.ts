@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { ApiError, parseStoredMessage } from './protocol.js';
 import type { Envelope, KeyBundle, StoredMessage } from './protocol.js';
 export interface MailboxRpcPort {
@@ -16,6 +16,9 @@ interface MailboxListResponse {
   messages: unknown[];
   next: number;
 }
+
+const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{32}$/;
+const MESSAGE_ID_RE = /^[0-9a-f]{32}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -95,19 +98,33 @@ export class SupabaseMailboxStore {
     }
   }
 
-  async addMessage(mailboxId: string, envelope: Envelope): Promise<{ id: string }> {
+  async addMessage(
+    mailboxId: string,
+    envelope: Envelope,
+    idempotencyKey?: string,
+  ): Promise<{ id: string; duplicate: boolean }> {
+    if (idempotencyKey !== undefined && !IDEMPOTENCY_KEY_RE.test(idempotencyKey)) {
+      throw new ApiError('BAD_REQUEST', 'invalid idempotency key');
+    }
     const id = randomBytes(16).toString('hex');
+    const requestHash = idempotencyKey === undefined
+      ? null
+      : createHash('sha256').update(JSON.stringify(envelope), 'utf8').digest('hex');
     try {
       const result = await this.rpc.rpc<unknown>('skillx_runtime_mailbox_add_message', {
         p_mailbox_id: mailboxId,
         p_message_id: id,
         p_envelope: envelope,
         p_stored_at: this.clock.nowMs(),
+        p_idempotency_key: idempotencyKey ?? null,
+        p_request_hash: requestHash,
       });
-      if (!isRecord(result) || result['id'] !== id) {
+      if (!isRecord(result) ||
+          typeof result['id'] !== 'string' || !MESSAGE_ID_RE.test(result['id']) ||
+          typeof result['duplicate'] !== 'boolean') {
         throw new ApiError('BAD_REQUEST', 'invalid mailbox store response');
       }
-      return { id };
+      return { id: result['id'], duplicate: result['duplicate'] };
     } catch (error) {
       if (error instanceof ApiError) throw error;
       throw apiErrorFor(error);
