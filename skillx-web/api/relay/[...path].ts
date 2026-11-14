@@ -37,7 +37,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function makeRpcClient(): SupabaseRpcClient {
   return new SupabaseRpcClient({
     url: requiredEnv('SUPABASE_URL'),
-    serviceRoleKey: requiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
+    serviceRoleKey: requiredEnv('SUPABASE_SECRET_KEY'),
   });
 }
 
