@@ -164,7 +164,7 @@ async function handle(request: Request): Promise<Response> {
   // protocol paths (/v1/...), exactly as they do for the standalone mailbox.
   const rewrittenPath = url.searchParams.get('__route');
   const path = rewrittenPath !== null
-    ? `/${rewrittenPath.replace(/^\\/+/, '')}`
+    ? `/${rewrittenPath}`
     : url.pathname.slice(PREFIX.length) || '/';
   let rpc: SupabaseRpcClient;
   try {
