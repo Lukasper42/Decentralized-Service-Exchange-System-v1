@@ -141,6 +141,25 @@ test('client send validates response and maps errors', async () => {
   if (!wrong.ok) assert.equal(wrong.error.code, 'FIELD_FORMAT');
 });
 
+test('client send attaches a valid idempotency key and rejects malformed keys', async () => {
+  const id = 'd'.repeat(64);
+  const key = 'e'.repeat(32);
+  let calls = 0;
+  const client = new MailboxClient('https://example.com', async (_url, init) => {
+    calls += 1;
+    assert.equal(init?.headers?.['Idempotency-Key'], key);
+    return response(201, { id: 'f'.repeat(32), duplicate: false });
+  });
+  const sent = await client.send(id, validEnvelope(), key);
+  assert.ok(sent.ok);
+  if (sent.ok) assert.equal(sent.value, 'f'.repeat(32));
+
+  const bad = await client.send(id, validEnvelope(), 'not-a-key');
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.equal(bad.error.code, 'FIELD_FORMAT');
+  assert.equal(calls, 1);
+});
+
 test('client fetchMessages validates structure and auth header', async () => {
   const id = 'd'.repeat(64);
   const envelope = validEnvelope();
