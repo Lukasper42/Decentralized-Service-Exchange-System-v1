@@ -154,7 +154,7 @@ async function handleRequest(
 
   if (method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Skillx-Auth');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Skillx-Auth, Idempotency-Key');
     res.setHeader('Access-Control-Max-Age', '600');
     res.statusCode = 204;
     res.end();
@@ -262,8 +262,12 @@ async function postMessage(
   if (!deps.store.hasKey(mailboxId)) {
     throw new ApiError('NOT_FOUND', 'unknown mailbox');
   }
-  const created = await deps.store.addMessage(mailboxId, envelope);
-  sendJson(res, 201, { id: created.id });
+  const idempotencyKey = headerValue(req, 'idempotency-key');
+  const created = await deps.store.addMessage(mailboxId, envelope, idempotencyKey);
+  sendJson(res, created.duplicate ? 200 : 201, {
+    id: created.id,
+    duplicate: created.duplicate,
+  });
 }
 
 async function getMessages(
