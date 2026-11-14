@@ -64,7 +64,7 @@ class FakeMailboxRpc implements MailboxRpcPort {
         throw Object.assign(new Error(), { sqlState: '23505' });
       }
 
-      case 'skillx_runtime_mailbox_add_message': {
+      case 'skillx_runtime_mailbox_add_message_idempotent': {
         if (!this.keys.has(mailboxId)) throw Object.assign(new Error(), { sqlState: 'P0002' });
         const key = args['p_idempotency_key'];
         const requestHash = args['p_request_hash'];
