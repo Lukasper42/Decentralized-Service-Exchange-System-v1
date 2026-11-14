@@ -116,13 +116,24 @@ function parseIntParam(raw: string | null, fallback: number): number | null {
 async function openRelay(): Promise<Relay> {
   let stage = 'genesis_hash_and_validation';
   try {
+    stage = 'genesis_json_environment';
     const genesisText = requiredEnv('SKILLX_GENESIS_JSON');
+
+    stage = 'genesis_hash_environment';
     const expectedGenesisHash = requiredEnv('SKILLX_GENESIS_SHA256').toLowerCase();
+
+    stage = 'genesis_hash_comparison';
     const actualGenesisHash = createHash('sha256').update(genesisText, 'utf8').digest('hex');
     if (!/^[a-f0-9]{64}$/.test(expectedGenesisHash) || actualGenesisHash !== expectedGenesisHash) {
+      console.error('skillx_relay_initialization_failed', {
+        stage,
+        expectedHashFormatValid: /^[a-f0-9]{64}$/.test(expectedGenesisHash),
+        genesisTextLength: genesisText.length,
+      });
       throw new Error('Public genesis hash check failed');
     }
 
+    stage = 'genesis_document_validation';
     const projectorConfig = loadGenesis({
       path: 'SKILLX_GENESIS_JSON',
       expectedSha256: expectedGenesisHash,
