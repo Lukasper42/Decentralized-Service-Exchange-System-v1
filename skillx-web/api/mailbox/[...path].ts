@@ -162,7 +162,10 @@ async function handle(request: Request): Promise<Response> {
   }
   // Strip only the Vercel routing prefix. Client signatures cover the original
   // protocol paths (/v1/...), exactly as they do for the standalone mailbox.
-  const path = url.pathname.slice(PREFIX.length) || '/';
+  const rewrittenPath = url.searchParams.get('__route');
+  const path = rewrittenPath !== null
+    ? `/${rewrittenPath.replace(/^\\/+/, '')}`
+    : url.pathname.slice(PREFIX.length) || '/';
   let rpc: SupabaseRpcClient;
   try {
     rpc = makeRpcClient();
