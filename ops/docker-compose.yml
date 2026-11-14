@@ -45,15 +45,6 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:3000/v1/health').then(async (r) => { await r.arrayBuffer(); if (!r.ok) process.exitCode = 1; }).catch(() => { process.exitCode = 1; });"
-      interval: 30s
-      timeout: 5s
-      retries: 5
     networks:
       - skillx
 
@@ -71,6 +62,15 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     networks:
       skillx:
         ipv4_address: 172.28.0.10
