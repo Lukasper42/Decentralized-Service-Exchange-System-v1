@@ -1,7 +1,5 @@
 import {
   ApiError,
-  MAILBOX_ID_RE,
-  MESSAGE_ID_RE,
   mailboxIdOf,
   parseEnvelope,
   parseKeyBundle,
@@ -228,7 +226,13 @@ async function handle(request: Request): Promise<Response> {
     try {
       const removed = await store.deleteMessage(mailboxId, messageId);
       return removed
-        ? new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
+        ? new Response(null, {
+            status: 204,
+            headers: {
+              'cache-control': 'no-store',
+              ...(origin === null ? {} : { 'access-control-allow-origin': origin }),
+            },
+          })
         : json({ error: { code: 'NOT_FOUND', message: 'unknown message' } }, 404, origin);
     } catch (error) {
       if (error instanceof MailboxStorageUnavailableError) return unavailable(origin);
@@ -251,7 +255,6 @@ async function handle(request: Request): Promise<Response> {
     }
   }
 
-  const method = request.method;
   const knownPath =
     /^\/v1\/(health|keys\/[0-9a-f]{64}|mailbox\/[0-9a-f]{64}(|\/messages(|\/[0-9a-f]{32})))$/.test(path);
   return knownPath
