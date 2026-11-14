@@ -149,7 +149,7 @@ async function handle(request: Request): Promise<Response> {
       headers: {
         ...(origin === null ? {} : { 'access-control-allow-origin': origin }),
         'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'access-control-allow-headers': 'content-type, x-skillx-auth',
+        'access-control-allow-headers': 'content-type, x-skillx-auth, idempotency-key',
         'access-control-max-age': '600',
         'cache-control': 'no-store',
       },
@@ -276,8 +276,13 @@ async function handle(request: Request): Promise<Response> {
     const mailboxId = mailboxMatch[1] ?? '';
     try {
       const envelope = parseEnvelope(await readJson(request));
-      const result = await store.addMessage(mailboxId, envelope);
-      return json({ id: result.id }, 201, origin);
+      const idempotencyKey = request.headers.get('idempotency-key') ?? undefined;
+      const result = await store.addMessage(mailboxId, envelope, idempotencyKey);
+      return json(
+        { id: result.id, duplicate: result.duplicate },
+        result.duplicate ? 200 : 201,
+        origin,
+      );
     } catch (error) {
       if (error instanceof MailboxStorageUnavailableError) return unavailable(origin);
       if (error instanceof ApiError) return sendApiError(error, origin);
