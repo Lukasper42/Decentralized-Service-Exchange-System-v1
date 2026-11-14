@@ -14,6 +14,13 @@ create table if not exists skillx_runtime.write_guard (
 );
 insert into skillx_runtime.write_guard(id) values (1) on conflict (id) do nothing;
 
+create table if not exists skillx_runtime.rate_buckets (
+  bucket_key text not null,
+  window_start_ms bigint not null check (window_start_ms >= 0),
+  request_count integer not null check (request_count > 0),
+  primary key (bucket_key, window_start_ms)
+);
+
 create table if not exists skillx_runtime.ledger_entries (
   sequence bigint primary key check (sequence > 0),
   event_hash text not null unique check (event_hash ~ '^[0-9a-f]{64}$'),
@@ -73,6 +80,7 @@ create index if not exists skillx_runtime_mailbox_post_log_recent
   on skillx_runtime.mailbox_post_log(mailbox_id, posted_at);
 
 alter table skillx_runtime.write_guard enable row level security;
+alter table skillx_runtime.rate_buckets enable row level security;
 alter table skillx_runtime.ledger_entries enable row level security;
 alter table skillx_runtime.mailbox_keys enable row level security;
 alter table skillx_runtime.mailbox_counters enable row level security;
@@ -86,6 +94,7 @@ grant select, insert, update on skillx_runtime.mailbox_counters to service_role;
 grant select, insert, delete on skillx_runtime.mailbox_messages to service_role;
 grant select, insert, delete on skillx_runtime.mailbox_post_log to service_role;
 grant select, update on skillx_runtime.write_guard to service_role;
+grant select, insert, update, delete on skillx_runtime.rate_buckets to service_role;
 revoke truncate, references, trigger on skillx_runtime.ledger_entries from service_role;
 
 create or replace function public.skillx_runtime_ledger_load()
@@ -153,6 +162,62 @@ begin
   );
 end;
 $$;
+
+create or replace function public.skillx_runtime_rate_limit(
+  p_bucket_keys text[],
+  p_limits integer[],
+  p_now_ms bigint,
+  p_window_ms bigint
+)
+returns boolean
+language plpgsql
+security invoker
+set search_path = ''
+as $
+declare
+  v_window_start bigint;
+  v_count integer;
+  i integer;
+begin
+  if p_bucket_keys is null or p_limits is null
+     or cardinality(p_bucket_keys) < 1
+     or cardinality(p_bucket_keys) <> cardinality(p_limits)
+     or p_now_ms is null or p_now_ms < 0
+     or p_window_ms is null or p_window_ms < 1000 then
+    raise exception 'invalid rate limit arguments' using errcode = '22023';
+  end if;
+
+  v_window_start := p_now_ms - (p_now_ms % p_window_ms);
+  for i in 1..cardinality(p_bucket_keys) loop
+    if p_bucket_keys[i] is null or length(p_bucket_keys[i]) < 16
+       or p_limits[i] is null or p_limits[i] < 1 or p_limits[i] > 10000 then
+      raise exception 'invalid rate limit bucket' using errcode = '22023';
+    end if;
+
+    insert into skillx_runtime.rate_buckets(bucket_key, window_start_ms, request_count)
+      values (p_bucket_keys[i], v_window_start, 1)
+    on conflict (bucket_key, window_start_ms)
+      do update set request_count = least(
+        skillx_runtime.rate_buckets.request_count + 1,
+        p_limits[i] + 1
+      )
+    returning request_count into v_count;
+
+    if v_count > p_limits[i] then
+      -- Bound denied requests to limit + 1, preventing unbounded counter growth.
+      delete from skillx_runtime.rate_buckets
+        where window_start_ms < v_window_start - (p_window_ms * 2);
+      return false;
+    end if;
+  end loop;
+
+  -- Keep only a short rolling history of bucket metadata; event and mailbox data
+  -- are not affected by this cleanup.
+  delete from skillx_runtime.rate_buckets
+    where window_start_ms < v_window_start - (p_window_ms * 2);
+  return true;
+end;
+$;
 
 create or replace function public.skillx_runtime_mailbox_get_key(p_mailbox_id text)
 returns jsonb
@@ -361,6 +426,7 @@ end;
 $$;
 
 -- The runtime schema is private. Only the server-side Vercel service role can access its tables.
+revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
 revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
 revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
@@ -369,6 +435,7 @@ revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jso
 revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
 revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
 
+grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
 grant execute on function public.skillx_runtime_ledger_load() to service_role;
 grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
 grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
