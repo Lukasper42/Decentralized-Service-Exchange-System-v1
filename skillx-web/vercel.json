@@ -5,6 +5,22 @@
     },
     "api/mailbox/**/*.ts": {
       "maxDuration": 30
+    },
+    "api/relay-router.ts": {
+      "maxDuration": 60
+    },
+    "api/mailbox-router.ts": {
+      "maxDuration": 30
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/relay/:path*",
+      "destination": "/api/relay-router?__route=:path*"
+    },
+    {
+      "source": "/api/mailbox/:path*",
+      "destination": "/api/mailbox-router?__route=:path*"
+    }
+  ]
 }
