@@ -181,7 +181,7 @@ async function handle(request: Request): Promise<Response> {
   if (!url.pathname.startsWith(PREFIX)) return apiError('NOT_FOUND', 'No such route', '', 404, origin);
   const rewrittenPath = url.searchParams.get('__route');
   const path = rewrittenPath !== null
-    ? `/${rewrittenPath.replace(/^\\/+/, '')}`
+    ? `/${rewrittenPath}`
     : url.pathname.slice(PREFIX.length) || '/';
 
   // Vercel overwrites x-forwarded-for with the actual public client IP. Only a
