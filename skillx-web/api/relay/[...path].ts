@@ -117,20 +117,33 @@ async function openRelay(): Promise<Relay> {
   let stage = 'genesis_hash_and_validation';
   try {
     stage = 'genesis_json_environment';
-    const genesisText = requiredEnv('SKILLX_GENESIS_JSON');
+    let genesisText = requiredEnv('SKILLX_GENESIS_JSON');
 
     stage = 'genesis_hash_environment';
     const expectedGenesisHash = requiredEnv('SKILLX_GENESIS_SHA256').toLowerCase();
+    const expectedHashFormatValid = /^[a-f0-9]{64}$/.test(expectedGenesisHash);
 
     stage = 'genesis_hash_comparison';
     const actualGenesisHash = createHash('sha256').update(genesisText, 'utf8').digest('hex');
-    if (!/^[a-f0-9]{64}$/.test(expectedGenesisHash) || actualGenesisHash !== expectedGenesisHash) {
-      console.error('skillx_relay_initialization_failed', {
-        stage,
-        expectedHashFormatValid: /^[a-f0-9]{64}$/.test(expectedGenesisHash),
-        genesisTextLength: genesisText.length,
-      });
+    if (!expectedHashFormatValid) {
       throw new Error('Public genesis hash check failed');
+    }
+    if (actualGenesisHash !== expectedGenesisHash) {
+      // Vercel environment values can omit a final line feed. Accept that one
+      // serialization difference only when restoring LF makes the exact
+      // configured SHA-256 match the previously verified Genesis file.
+      const withFinalLf = createHash('sha256').update(genesisText + '\n', 'utf8').digest('hex');
+      if (withFinalLf === expectedGenesisHash) {
+        genesisText += '\n';
+      } else {
+        console.error('skillx_relay_initialization_failed', {
+          stage,
+          expectedHashFormatValid,
+          genesisTextLength: genesisText.length,
+          finalLfRestoresExpectedHash: false,
+        });
+        throw new Error('Public genesis hash check failed');
+      }
     }
 
     stage = 'genesis_document_validation';
