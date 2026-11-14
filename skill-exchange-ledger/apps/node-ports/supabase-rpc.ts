@@ -46,7 +46,7 @@ const ALLOWED_FUNCTIONS = new Set([
  */
 export class SupabaseRpcClient implements SupabaseRpcPort {
   private readonly baseUrl: string;
-  private readonly serviceRoleKey: string;
+  private readonly serviceRoleKey: string; // Supabase sb_secret_... key
   private readonly fetchPort: SupabaseFetch;
   private readonly timeoutMs: number;
 
