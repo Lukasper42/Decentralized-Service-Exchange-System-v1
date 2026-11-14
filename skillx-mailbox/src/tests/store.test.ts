@@ -34,6 +34,36 @@ test('limit of 200 messages is enforced', async () => {
   );
 });
 
+test('same idempotency key returns the same message without consuming another sequence', async () => {
+  const clock = new FakeClock(T0);
+  const file = new MemoryFile();
+  const store = await MailboxStore.load({ clock, random: testRandom, file });
+  const signer = await makeSigner();
+  const mailboxId = identityOf(signer);
+  await store.putKey(await makeBundle(signer, ISO0));
+  const envelope = makeEnvelope();
+  const key = 'd'.repeat(32);
+
+  const first = await store.addMessage(mailboxId, envelope, key);
+  const repeated = await store.addMessage(mailboxId, envelope, key);
+  assert.equal(first.duplicate, false);
+  assert.deepEqual(repeated, { id: first.id, duplicate: true });
+
+  await assert.rejects(
+    () => store.addMessage(mailboxId, makeEnvelope(), key),
+    (err: unknown) => err instanceof ApiError && err.code === 'CONFLICT',
+  );
+
+  const next = await store.addMessage(mailboxId, makeEnvelope(), 'e'.repeat(32));
+  assert.equal(next.duplicate, false);
+  const restarted = await MailboxStore.load({ clock, random: testRandom, file });
+  const afterRestart = await restarted.addMessage(mailboxId, envelope, key);
+  assert.deepEqual(afterRestart, { id: first.id, duplicate: true });
+  const listed = await restarted.listMessages(mailboxId, 0, 100);
+  assert.equal(listed.messages.length, 2);
+  assert.equal(listed.next, 2);
+});
+
 test('TTL deletes messages after 14 days', async () => {
   const clock = new FakeClock(T0);
   const store = await MailboxStore.load({ clock, random: testRandom, file: new MemoryFile() });
