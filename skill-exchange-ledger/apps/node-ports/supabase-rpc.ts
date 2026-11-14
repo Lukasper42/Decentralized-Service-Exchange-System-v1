@@ -35,6 +35,7 @@ const ALLOWED_FUNCTIONS = new Set([
   'skillx_runtime_mailbox_get_key',
   'skillx_runtime_mailbox_put_key',
   'skillx_runtime_mailbox_add_message',
+  'skillx_runtime_mailbox_add_message_idempotent',
   'skillx_runtime_mailbox_list_messages',
   'skillx_runtime_mailbox_delete_message',
 ]);
