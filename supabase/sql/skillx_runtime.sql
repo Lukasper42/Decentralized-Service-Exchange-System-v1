@@ -81,7 +81,7 @@ alter table skillx_runtime.mailbox_post_log enable row level security;
 
 revoke all on all tables in schema skillx_runtime from public, anon, authenticated;
 grant select, insert on skillx_runtime.ledger_entries to service_role;
-grant select, insert on skillx_runtime.mailbox_keys to service_role;
+grant select, insert, update on skillx_runtime.mailbox_keys to service_role;
 grant select, insert, update on skillx_runtime.mailbox_counters to service_role;
 grant select, insert, delete on skillx_runtime.mailbox_messages to service_role;
 grant select, insert, delete on skillx_runtime.mailbox_post_log to service_role;
