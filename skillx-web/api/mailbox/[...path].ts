@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import {
   ApiError,
   mailboxIdOf,
@@ -53,12 +55,25 @@ function allowedOrigin(): string | null {
   return parsed.origin;
 }
 
-function makeStore(): SupabaseMailboxStore {
+function makeRpcClient(): SupabaseRpcClient {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (url === undefined || key === undefined) throw new Error('Mailbox storage configuration missing');
-  const rpc = new SupabaseRpcClient({ url, serviceRoleKey: key });
-  return new SupabaseMailboxStore(rpc, clock);
+  return new SupabaseRpcClient({ url, serviceRoleKey: key });
+}
+
+async function allowIpRequest(rpc: SupabaseRpcClient, request: Request): Promise<boolean> {
+  const forwardedIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '';
+  const clientIp = isIP(forwardedIp) === 0 ? 'unknown' : forwardedIp;
+  const bucket = 'ip:' + createHash('sha256').update(clientIp).digest('hex');
+  const allowed = await rpc.rpc<unknown>('skillx_runtime_rate_limit', {
+    p_bucket_keys: [bucket],
+    p_limits: [120],
+    p_now_ms: Date.now(),
+    p_window_ms: 60_000,
+  });
+  if (typeof allowed !== 'boolean') throw new Error('Invalid rate limit response');
+  return allowed;
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -145,7 +160,16 @@ async function handle(request: Request): Promise<Response> {
   // Strip only the Vercel routing prefix. Client signatures cover the original
   // protocol paths (/v1/...), exactly as they do for the standalone mailbox.
   const path = url.pathname.slice(PREFIX.length) || '/';
-  const store = makeStore();
+  let rpc: SupabaseRpcClient;
+  try {
+    rpc = makeRpcClient();
+    if (!(await allowIpRequest(rpc, request))) {
+      return json({ error: { code: 'RATE_LIMITED', message: 'Too many requests' } }, 429, origin);
+    }
+  } catch {
+    return unavailable(origin);
+  }
+  const store = new SupabaseMailboxStore(rpc, clock);
 
   if (path === '/v1/health') {
     if (request.method !== 'GET') {
