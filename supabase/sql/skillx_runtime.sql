@@ -425,6 +425,243 @@ begin
 end;
 $$;
 
+
+-- One-time import from the verified C8 migration snapshot.
+-- Refuses to run if any business data already exists; drop this function after import.
+create or replace function public.skillx_runtime_import_seed(
+  p_ledger_entries jsonb,
+  p_mailbox_keys jsonb,
+  p_mailbox_messages jsonb,
+  p_mailbox_sequences jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $
+declare
+  v_row record;
+  v_mailbox_id text;
+  v_last_seq bigint;
+  v_ledger_count integer := 0;
+  v_key_count integer := 0;
+  v_message_count integer := 0;
+  v_sequence_count integer := 0;
+begin
+  if jsonb_typeof(p_ledger_entries) is distinct from 'array'
+     or jsonb_typeof(p_mailbox_keys) is distinct from 'array'
+     or jsonb_typeof(p_mailbox_messages) is distinct from 'array'
+     or jsonb_typeof(p_mailbox_sequences) is distinct from 'object' then
+    raise exception 'invalid migration import payload' using errcode = '22023';
+  end if;
+
+  perform 1 from skillx_runtime.write_guard where id = 1 for update;
+  if not found then
+    raise exception 'migration write guard is missing' using errcode = '55000';
+  end if;
+
+  if exists (select 1 from skillx_runtime.ledger_entries)
+     or exists (select 1 from skillx_runtime.mailbox_keys)
+     or exists (select 1 from skillx_runtime.mailbox_counters)
+     or exists (select 1 from skillx_runtime.mailbox_messages) then
+    raise exception 'runtime already contains data; import is one-time only' using errcode = '55000';
+  end if;
+
+  for v_row in
+    select * from jsonb_to_recordset(p_ledger_entries) as x(
+      sequence bigint,
+      event_hash text,
+      signer text,
+      prev_hash text,
+      checksum text,
+      entry_json text
+    )
+  loop
+    if v_row.sequence <> v_ledger_count + 1
+       or v_row.event_hash !~ '^[0-9a-f]{64} Only the server-side Vercel service role can access its tables.
+revoke all on function public.skillx_runtime_import_seed(jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated;
+
+revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
+
+grant execute on function public.skillx_runtime_import_seed(jsonb, jsonb, jsonb, jsonb) to service_role;
+
+grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
+grant execute on function public.skillx_runtime_ledger_load() to service_role;
+grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
+
+commit;
+
+       or v_row.checksum !~ '^[0-9a-f]{64} Only the server-side Vercel service role can access its tables.
+revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
+
+grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
+grant execute on function public.skillx_runtime_ledger_load() to service_role;
+grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
+
+commit;
+
+       or v_row.signer is null or length(v_row.signer) = 0
+       or v_row.entry_json is null then
+      raise exception 'invalid or non-contiguous migration ledger entry' using errcode = '22023';
+    end if;
+
+    insert into skillx_runtime.ledger_entries(
+      sequence, event_hash, signer, prev_hash, checksum, entry_json
+    ) values (
+      v_row.sequence, v_row.event_hash, v_row.signer, v_row.prev_hash,
+      v_row.checksum, v_row.entry_json
+    );
+    v_ledger_count := v_ledger_count + 1;
+  end loop;
+
+  for v_row in
+    select * from jsonb_to_recordset(p_mailbox_keys) as x(
+      mailbox_id text,
+      identity_pubkey text,
+      x_pubkey text,
+      created_at text,
+      sig text
+    )
+  loop
+    if v_row.mailbox_id !~ '^[0-9a-f]{64} Only the server-side Vercel service role can access its tables.
+revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
+
+grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
+grant execute on function public.skillx_runtime_ledger_load() to service_role;
+grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
+
+commit;
+
+       or v_row.identity_pubkey is null
+       or v_row.x_pubkey is null
+       or v_row.created_at is null
+       or v_row.sig is null
+       or not (p_mailbox_sequences ? v_row.mailbox_id)
+       or jsonb_typeof(p_mailbox_sequences -> v_row.mailbox_id) is distinct from 'number' then
+      raise exception 'invalid migration mailbox key or sequence' using errcode = '22023';
+    end if;
+
+    v_last_seq := (p_mailbox_sequences ->> v_row.mailbox_id)::bigint;
+    if v_last_seq < 0 then
+      raise exception 'invalid migration mailbox sequence' using errcode = '22023';
+    end if;
+
+    insert into skillx_runtime.mailbox_keys(
+      mailbox_id, identity_pubkey, x_pubkey, created_at, sig
+    ) values (
+      v_row.mailbox_id, v_row.identity_pubkey, v_row.x_pubkey, v_row.created_at, v_row.sig
+    );
+    insert into skillx_runtime.mailbox_counters(mailbox_id, last_seq)
+    values (v_row.mailbox_id, v_last_seq);
+
+    v_key_count := v_key_count + 1;
+  end loop;
+
+  select count(*) into v_sequence_count from jsonb_object_keys(p_mailbox_sequences);
+  if v_sequence_count <> v_key_count then
+    raise exception 'mailbox sequence map does not match imported keys' using errcode = '22023';
+  end if;
+
+  for v_row in
+    select * from jsonb_to_recordset(p_mailbox_messages) as x(
+      mailbox_id text,
+      seq bigint,
+      id text,
+      envelope jsonb,
+      stored_at bigint
+    )
+  loop
+    if v_row.mailbox_id is null
+       or v_row.seq is null or v_row.seq < 1
+       or v_row.id !~ '^[0-9a-f]{32} Only the server-side Vercel service role can access its tables.
+revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
+revoke all on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_get_key(text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) from public, anon, authenticated;
+revoke all on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) from public, anon, authenticated;
+
+grant execute on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) to service_role;
+grant execute on function public.skillx_runtime_ledger_load() to service_role;
+grant execute on function public.skillx_runtime_ledger_append(bigint, text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_get_key(text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_put_key(text, text, text, text, text) to service_role;
+grant execute on function public.skillx_runtime_mailbox_add_message(text, text, jsonb, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_list_messages(text, bigint, integer, bigint) to service_role;
+grant execute on function public.skillx_runtime_mailbox_delete_message(text, text, bigint) to service_role;
+
+commit;
+
+       or v_row.envelope is null
+       or v_row.stored_at is null or v_row.stored_at < 0 then
+      raise exception 'invalid migration mailbox message' using errcode = '22023';
+    end if;
+
+    insert into skillx_runtime.mailbox_messages(
+      mailbox_id, seq, id, envelope, stored_at
+    ) values (
+      v_row.mailbox_id, v_row.seq, v_row.id, v_row.envelope, v_row.stored_at
+    );
+    v_message_count := v_message_count + 1;
+  end loop;
+
+  if exists (
+    select 1
+    from skillx_runtime.mailbox_messages m
+    join skillx_runtime.mailbox_counters c using (mailbox_id)
+    group by m.mailbox_id, c.last_seq
+    having max(m.seq) > c.last_seq
+  ) then
+    raise exception 'mailbox sequence counter is behind imported messages' using errcode = '22023';
+  end if;
+
+  return jsonb_build_object(
+    'ledger_entries', v_ledger_count,
+    'mailbox_keys', v_key_count,
+    'mailbox_messages', v_message_count
+  );
+end;
+$;
+
+
 -- The runtime schema is private. Only the server-side Vercel service role can access its tables.
 revoke all on function public.skillx_runtime_rate_limit(text[], integer[], bigint, bigint) from public, anon, authenticated;
 revoke all on function public.skillx_runtime_ledger_load() from public, anon, authenticated;
