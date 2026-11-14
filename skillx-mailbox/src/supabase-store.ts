@@ -111,7 +111,7 @@ export class SupabaseMailboxStore {
       ? null
       : createHash('sha256').update(JSON.stringify(envelope), 'utf8').digest('hex');
     try {
-      const result = await this.rpc.rpc<unknown>('skillx_runtime_mailbox_add_message', {
+      const result = await this.rpc.rpc<unknown>('skillx_runtime_mailbox_add_message_idempotent', {
         p_mailbox_id: mailboxId,
         p_message_id: id,
         p_envelope: envelope,
