@@ -60,7 +60,7 @@ function allowedOrigin(): string | null {
 
 function makeRpcClient(): SupabaseRpcClient {
   const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SECRET_KEY;
   if (url === undefined || key === undefined) throw new Error('Mailbox storage configuration missing');
   return new SupabaseRpcClient({ url, serviceRoleKey: key });
 }
