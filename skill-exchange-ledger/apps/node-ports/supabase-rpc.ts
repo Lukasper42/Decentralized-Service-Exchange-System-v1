@@ -1,5 +1,17 @@
 import type { SupabaseRpcPort } from '../../packages/relay/src/supabase-ledger-store.js';
 
+export class SupabaseRpcError extends Error {
+  readonly status: number;
+  readonly sqlState: string | null;
+
+  constructor(status: number, sqlState: string | null) {
+    super('Supabase RPC request failed');
+    this.name = 'SupabaseRpcError';
+    this.status = status;
+    this.sqlState = sqlState;
+  }
+}
+
 export interface SupabaseRpcResponse {
   ok: boolean;
   status: number;
@@ -85,11 +97,34 @@ export class SupabaseRpcClient implements SupabaseRpcPort {
       );
 
       if (!response.ok) {
-        // Do not forward Postgres/PostgREST error bodies to a public caller.
-        throw new Error(`Supabase RPC failed (${response.status})`);
+        // Only retain the controlled SQLSTATE and HTTP status. Never retain or
+        // forward Postgres messages, detail, hint, or request/credential data.
+        let sqlState: string | null = null;
+        try {
+          const body: unknown = await response.json();
+          if (
+            typeof body === 'object' &&
+            body !== null &&
+            !Array.isArray(body) &&
+            Object.hasOwn(body, 'code')
+          ) {
+            const candidate = (body as { code?: unknown }).code;
+            if (typeof candidate === 'string' && /^[0-9A-Z]{5}$/.test(candidate)) {
+              sqlState = candidate;
+            }
+          }
+        } catch {
+          // A non-JSON gateway error still carries its HTTP status.
+        }
+        throw new SupabaseRpcError(response.status, sqlState);
       }
-      return (await response.json()) as T;
-    } catch {
+      try {
+        return (await response.json()) as T;
+      } catch {
+        throw new Error('Supabase RPC returned invalid JSON');
+      }
+    } catch (error) {
+      if (error instanceof SupabaseRpcError) throw error;
       throw new Error('Supabase RPC request failed');
     } finally {
       clearTimeout(timeout);
