@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { bytesToHex } from './b64.js';
 import type { ClockPort, RandomPort, StoreFilePort } from './ports.js';
 import {
@@ -15,6 +16,13 @@ const MESSAGE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_MESSAGES = 200;
 const MAX_POSTS_PER_MINUTE = 60;
 const MAX_KEYS = 10_000;
+const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{32}$/;
+
+interface IdempotencyRecord {
+  requestHash: string;
+  id: string;
+  storedAt: number;
+}
 
 export interface StoreDeps {
   readonly clock: ClockPort;
@@ -30,6 +38,7 @@ export class MailboxStore {
   private readonly messages = new Map<string, StoredMessage[]>();
   private readonly seqs = new Map<string, number>();
   private readonly postLog = new Map<string, number[]>();
+  private readonly idempotency = new Map<string, Map<string, IdempotencyRecord>>();
   private chain: Promise<void> = Promise.resolve();
 
   private constructor(deps: StoreDeps) {
@@ -75,11 +84,43 @@ export class MailboxStore {
     throw new ApiError('CONFLICT', 'key bundle is older than stored one');
   }
 
-  async addMessage(mailboxId: string, envelope: Envelope): Promise<{ id: string }> {
+  async addMessage(
+    mailboxId: string,
+    envelope: Envelope,
+    idempotencyKey?: string,
+  ): Promise<{ id: string; duplicate: boolean }> {
     if (!this.keys.has(mailboxId)) {
       throw new ApiError('NOT_FOUND', 'no key bundle for mailbox');
     }
+    if (idempotencyKey !== undefined && !IDEMPOTENCY_KEY_RE.test(idempotencyKey)) {
+      throw new ApiError('BAD_REQUEST', 'invalid idempotency key');
+    }
+
     const now = this.deps.clock.nowMs();
+    const requestHash = createHash('sha256').update(JSON.stringify(envelope), 'utf8').digest('hex');
+    let records = this.idempotency.get(mailboxId);
+    let recordsChanged = false;
+    if (records !== undefined) {
+      for (const [key, record] of records) {
+        if (now - record.storedAt >= MESSAGE_TTL_MS) {
+          records.delete(key);
+          recordsChanged = true;
+        }
+      }
+    }
+
+    if (idempotencyKey !== undefined) {
+      const existing = records?.get(idempotencyKey);
+      if (existing !== undefined) {
+        if (existing.requestHash !== requestHash) {
+          throw new ApiError('CONFLICT', 'idempotency key was already used with different content');
+        }
+        if (recordsChanged) await this.persist();
+        return { id: existing.id, duplicate: true };
+      }
+    }
+
+    // A safe retry is resolved before rate/cap checks and does not consume another slot.
     this.checkRate(mailboxId, now);
     const { list } = this.clean(mailboxId, now);
     if (list.length >= MAX_MESSAGES) {
@@ -93,8 +134,17 @@ export class MailboxStore {
     const log = this.postLog.get(mailboxId) ?? [];
     log.push(now);
     this.postLog.set(mailboxId, log);
+
+    if (idempotencyKey !== undefined) {
+      if (records === undefined) {
+        records = new Map<string, IdempotencyRecord>();
+        this.idempotency.set(mailboxId, records);
+      }
+      records.set(idempotencyKey, { requestHash, id, storedAt: now });
+    }
+
     await this.persist();
-    return { id };
+    return { id, duplicate: false };
   }
 
   async listMessages(
@@ -172,7 +222,13 @@ export class MailboxStore {
     for (const [id, value] of this.seqs) {
       seq[id] = value;
     }
-    return JSON.stringify({ v: 1, keys, messages, seq });
+    const idempotency: Record<string, Record<string, IdempotencyRecord>> = {};
+    for (const [mailboxId, records] of this.idempotency) {
+      const mailboxRecords: Record<string, IdempotencyRecord> = {};
+      for (const [key, record] of records) mailboxRecords[key] = record;
+      idempotency[mailboxId] = mailboxRecords;
+    }
+    return JSON.stringify({ v: 1, keys, messages, seq, idempotency });
   }
 
   private hydrate(text: string): void {
@@ -228,6 +284,31 @@ export class MailboxStore {
         throw new Error('store: invalid seq counter');
       }
       this.seqs.set(id, Math.max(this.seqs.get(id) ?? 0, value));
+    }
+
+    const idempotencyRaw = root['idempotency'] === undefined ? {} : asObject(root['idempotency']);
+    for (const [mailboxId, value] of Object.entries(idempotencyRaw)) {
+      if (!MAILBOX_ID_RE.test(mailboxId)) {
+        throw new Error('store: invalid idempotency mailbox id');
+      }
+      const entries = asObject(value);
+      const records = new Map<string, IdempotencyRecord>();
+      for (const [key, item] of Object.entries(entries)) {
+        if (!IDEMPOTENCY_KEY_RE.test(key)) {
+          throw new Error('store: invalid idempotency key');
+        }
+        const record = asObject(item);
+        const requestHash = record['requestHash'];
+        const messageId = record['id'];
+        const storedAt = record['storedAt'];
+        if (typeof requestHash !== 'string' || !/^[0-9a-f]{64}$/.test(requestHash) ||
+            typeof messageId !== 'string' || !/^[0-9a-f]{32}$/.test(messageId) ||
+            typeof storedAt !== 'number' || !Number.isSafeInteger(storedAt) || storedAt < 0) {
+          throw new Error('store: invalid idempotency record');
+        }
+        records.set(key, { requestHash, id: messageId, storedAt });
+      }
+      if (records.size > 0) this.idempotency.set(mailboxId, records);
     }
   }
 }
