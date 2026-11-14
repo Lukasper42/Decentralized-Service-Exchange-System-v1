@@ -26,6 +26,7 @@ class FakeMailboxRpc implements MailboxRpcPort {
   readonly counters = new Map<string, number>();
   readonly messages = new Map<string, FakeRow[]>();
   readonly posts = new Map<string, number[]>();
+  readonly idempotency = new Map<string, Map<string, { requestHash: string; id: string; storedAt: number }>>();
   fail = false;
 
   async rpc<T = unknown>(
@@ -65,6 +66,23 @@ class FakeMailboxRpc implements MailboxRpcPort {
 
       case 'skillx_runtime_mailbox_add_message': {
         if (!this.keys.has(mailboxId)) throw Object.assign(new Error(), { sqlState: 'P0002' });
+        const key = args['p_idempotency_key'];
+        const requestHash = args['p_request_hash'];
+        let records = this.idempotency.get(mailboxId);
+        if (records !== undefined) {
+          for (const [recordKey, record] of records) {
+            if (now - record.storedAt >= 14 * 24 * 60 * 60 * 1000) records.delete(recordKey);
+          }
+        }
+        if (typeof key === 'string') {
+          const existing = records?.get(key);
+          if (existing !== undefined) {
+            if (existing.requestHash !== requestHash) {
+              throw Object.assign(new Error(), { sqlState: '23505' });
+            }
+            return { id: existing.id, duplicate: true } as T;
+          }
+        }
         const postLog = (this.posts.get(mailboxId) ?? []).filter((time) => now - time < 60_000);
         if (postLog.length >= 60) throw Object.assign(new Error(), { sqlState: 'P0001' });
         const current = (this.messages.get(mailboxId) ?? []).filter((message) => now - message.stored_at < 14 * 24 * 60 * 60 * 1000);
@@ -81,7 +99,14 @@ class FakeMailboxRpc implements MailboxRpcPort {
         this.messages.set(mailboxId, current);
         postLog.push(now);
         this.posts.set(mailboxId, postLog);
-        return { id } as T;
+        if (typeof key === 'string' && typeof requestHash === 'string') {
+          if (records === undefined) {
+            records = new Map();
+            this.idempotency.set(mailboxId, records);
+          }
+          records.set(key, { requestHash, id, storedAt: now });
+        }
+        return { id, duplicate: false } as T;
       }
 
       case 'skillx_runtime_mailbox_list_messages': {
@@ -163,6 +188,64 @@ test('Supabase mailbox adapter preserves sequence after delete and expires old m
   clock.advance(15 * 24 * 60 * 60 * 1000);
   const afterExpiry = await store.listMessages(mailboxId, 0, 100);
   assert.equal(afterExpiry.messages.length, 0);
+});
+
+test('Supabase mailbox adapter returns the original id for a repeated idempotency key', async () => {
+  const rpc = new FakeMailboxRpc();
+  const clock = new FakeClock(1_700_000_000_000);
+  const store = makeStore(rpc, clock);
+  const signer = await makeSigner();
+  const mailboxId = identityOf(signer);
+  await store.putKey(await makeBundle(signer, clock.nowIso()), mailboxId);
+  const envelope = makeEnvelope();
+  const key = 'a'.repeat(32);
+
+  const first = await store.addMessage(mailboxId, envelope, key);
+  const repeated = await store.addMessage(mailboxId, envelope, key);
+
+  assert.equal(first.duplicate, false);
+  assert.deepEqual(repeated, { id: first.id, duplicate: true });
+  const listed = await store.listMessages(mailboxId, 0, 100);
+  assert.equal(listed.messages.length, 1);
+  assert.equal(listed.next, 1);
+});
+
+test('Supabase mailbox adapter rejects a reused key with different content', async () => {
+  const rpc = new FakeMailboxRpc();
+  const clock = new FakeClock(1_700_000_000_000);
+  const store = makeStore(rpc, clock);
+  const signer = await makeSigner();
+  const mailboxId = identityOf(signer);
+  await store.putKey(await makeBundle(signer, clock.nowIso()), mailboxId);
+  const key = 'b'.repeat(32);
+
+  await store.addMessage(mailboxId, makeEnvelope(), key);
+  await assert.rejects(
+    () => store.addMessage(mailboxId, makeEnvelope(), key),
+    (error: unknown) => error instanceof ApiError && error.code === 'CONFLICT',
+  );
+});
+
+test('concurrent Supabase mailbox retries share one message and sequence', async () => {
+  const rpc = new FakeMailboxRpc();
+  const clock = new FakeClock(1_700_000_000_000);
+  const store = makeStore(rpc, clock);
+  const signer = await makeSigner();
+  const mailboxId = identityOf(signer);
+  await store.putKey(await makeBundle(signer, clock.nowIso()), mailboxId);
+  const envelope = makeEnvelope();
+  const key = 'c'.repeat(32);
+
+  const results = await Promise.all([
+    store.addMessage(mailboxId, envelope, key),
+    store.addMessage(mailboxId, envelope, key),
+    store.addMessage(mailboxId, envelope, key),
+  ]);
+
+  assert.equal(new Set(results.map((result) => result.id)).size, 1);
+  assert.equal(results.filter((result) => result.duplicate).length, 2);
+  assert.equal((await store.listMessages(mailboxId, 0, 100)).messages.length, 1);
+  assert.equal(rpc.counters.get(mailboxId), 1);
 });
 
 test('Supabase mailbox adapter maps missing mailbox and storage failures safely', async () => {
