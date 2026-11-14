@@ -27,15 +27,79 @@ export interface Deps {
 }
 
 const URL_KEY = 'skillx.mailbox.url';
+const PENDING_SEND_KEY = 'skillx.mailbox.pending-send.v1';
 
 interface PendingSend {
   identityPubkey: string;
   recipientPubkey: string;
   mailboxUrl: string;
-  body: string;
+  body?: string; // Kept only in memory; never persisted.
   mailboxId: string;
   envelope: Envelope;
   idempotencyKey: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readPendingSend(storage: StoragePort): PendingSend | null {
+  try {
+    const raw = storage.get(PENDING_SEND_KEY);
+    if (raw === null) return null;
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value)) throw new Error('invalid pending send');
+
+    const identityPubkey = value['identityPubkey'];
+    const recipientPubkey = value['recipientPubkey'];
+    const mailboxUrl = value['mailboxUrl'];
+    const mailboxIdValue = value['mailboxId'];
+    const idempotencyKey = value['idempotencyKey'];
+    const rawEnvelope = value['envelope'];
+    const checkedUrl = typeof mailboxUrl === 'string' ? checkRelayUrl(mailboxUrl) : null;
+
+    if (typeof identityPubkey !== 'string' || !isValidPubkey(identityPubkey) ||
+        typeof recipientPubkey !== 'string' || !isValidPubkey(recipientPubkey) ||
+        typeof mailboxUrl !== 'string' || checkedUrl === null || !checkedUrl.ok ||
+        checkedUrl.url !== mailboxUrl ||
+        typeof mailboxIdValue !== 'string' || !/^[0-9a-f]{64}$/.test(mailboxIdValue) ||
+        typeof idempotencyKey !== 'string' || !/^[0-9a-f]{32}$/.test(idempotencyKey) ||
+        !isRecord(rawEnvelope) || rawEnvelope['v'] !== 1 ||
+        typeof rawEnvelope['eph_pub'] !== 'string' ||
+        typeof rawEnvelope['iv'] !== 'string' ||
+        typeof rawEnvelope['ct'] !== 'string') {
+      throw new Error('invalid pending send');
+    }
+
+    return {
+      identityPubkey,
+      recipientPubkey,
+      mailboxUrl,
+      mailboxId: mailboxIdValue,
+      envelope: {
+        v: 1,
+        eph_pub: rawEnvelope['eph_pub'],
+        iv: rawEnvelope['iv'],
+        ct: rawEnvelope['ct'],
+      },
+      idempotencyKey,
+    };
+  } catch {
+    try { storage.remove(PENDING_SEND_KEY); } catch { /* Keep rendering available if storage is unavailable. */ }
+    return null;
+  }
+}
+
+function persistPendingSend(storage: StoragePort, pending: PendingSend): void {
+  // Only ciphertext and retry metadata are persisted. The plaintext body is deliberately omitted.
+  storage.set(PENDING_SEND_KEY, JSON.stringify({
+    identityPubkey: pending.identityPubkey,
+    recipientPubkey: pending.recipientPubkey,
+    mailboxUrl: pending.mailboxUrl,
+    mailboxId: pending.mailboxId,
+    envelope: pending.envelope,
+    idempotencyKey: pending.idempotencyKey,
+  }));
 }
 
 function makeIdempotencyKey(random: RandomPort): string {
@@ -49,7 +113,7 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   let baseUrl = deps.storage.get(URL_KEY) ?? '';
   let client: MailboxClient | null = null;
   let lastSeq = 0;
-  let pendingSend: PendingSend | null = null;
+  let pendingSend: PendingSend | null = readPendingSend(deps.storage);
 
   const container = el('div', 'messages-view');
   const title = el('h2');
@@ -66,6 +130,10 @@ export function render(root: HTMLElement, deps: Deps): () => void {
 
   function setStatus(value: string): void {
     text(status, value);
+  }
+
+  if (pendingSend !== null) {
+    setStatus('A pending encrypted send was restored. Retry it or discard it before sending a new message.');
   }
 
   function getClient(): MailboxClient | null {
@@ -153,19 +221,99 @@ export function render(root: HTMLElement, deps: Deps): () => void {
   const bodyInput = el('textarea');
   const sendButton = el('button');
   text(sendButton, 'Send');
+  const retryPendingButton = el('button');
+  text(retryPendingButton, 'Retry pending send');
+  retryPendingButton.hidden = pendingSend === null;
   const discardPendingButton = el('button');
   text(discardPendingButton, 'Discard pending retry');
-  discardPendingButton.hidden = true;
+  discardPendingButton.hidden = pendingSend === null;
+  sendButton.disabled = pendingSend !== null;
+  recipientInput.value = pendingSend?.recipientPubkey ?? '';
+  recipientInput.disabled = pendingSend !== null;
+
+  let sending = false;
+
+  function clearPendingSend(): boolean {
+    try {
+      deps.storage.remove(PENDING_SEND_KEY);
+      pendingSend = null;
+      retryPendingButton.hidden = true;
+      discardPendingButton.hidden = true;
+      sendButton.disabled = false;
+      recipientInput.disabled = false;
+      return true;
+    } catch {
+      setStatus('Could not clear the saved retry state. Keep using Retry pending send; do not start a new message yet.');
+      return false;
+    }
+  }
+
+  retryPendingButton.addEventListener('click', () => {
+    if (sending || pendingSend === null) return;
+    const pending = pendingSend;
+    sending = true;
+    retryPendingButton.disabled = true;
+    discardPendingButton.disabled = true;
+    void (async () => {
+      const identity = deps.getIdentity();
+      if (identity === null || identity.pubkey !== pending.identityPubkey) {
+        setStatus('Unlock the same sending identity before retrying this pending message.');
+        return;
+      }
+      const checked = checkRelayUrl(pending.mailboxUrl);
+      if (!checked.ok) {
+        setStatus('The saved mailbox URL is invalid. The pending encrypted message has not been changed.');
+        return;
+      }
+      try {
+        const retryClient = new MailboxClient(checked.url, deps.fetch);
+        const result = await retryClient.send(
+          pending.mailboxId,
+          pending.envelope,
+          pending.idempotencyKey
+        );
+        if (!result.ok) {
+          setStatus(`Retry: ${result.error.code} ${result.error.message}. The same encrypted request is still saved; retry again or discard it.`);
+          return;
+        }
+        if (!clearPendingSend()) return;
+
+        if (pending.body !== undefined) {
+          store.add({
+            serverId: result.value,
+            peer: pending.recipientPubkey,
+            direction: 'out',
+            sentAt: deps.clock.nowIso(),
+            body: pending.body,
+            seq: null
+          });
+          bodyInput.value = '';
+          setStatus(`Sent (${result.value}).`);
+        } else {
+          setStatus(`Pending send confirmed (${result.value}). The message text was not retained after reopening, so it was not added to local history.`);
+        }
+      } catch {
+        setStatus('Retry failed. The same encrypted request is still saved; retry again to avoid creating a duplicate.');
+      }
+    })().finally(() => {
+      sending = false;
+      retryPendingButton.disabled = false;
+      discardPendingButton.disabled = false;
+    });
+  });
+
   discardPendingButton.addEventListener('click', () => {
-    if (pendingSend === null) return;
-    pendingSend = null;
-    discardPendingButton.hidden = true;
+    if (pendingSend === null || sending) return;
+    if (!clearPendingSend()) return;
     setStatus('Pending retry discarded. The previous message may already have been delivered.');
   });
 
-  let sending = false;
   sendButton.addEventListener('click', () => {
     if (sending) return;
+    if (pendingSend !== null) {
+      setStatus('A previous send is still pending. Retry it or discard it before sending a new message.');
+      return;
+    }
     sending = true;
     sendButton.disabled = true;
     void (async () => {
@@ -195,79 +343,84 @@ export function render(root: HTMLElement, deps: Deps): () => void {
       }
 
       try {
-        let recipientMailboxId: string;
-        let envelope: Envelope;
-        let idempotencyKey: string;
-
-        if (pendingSend !== null) {
-          if (pendingSend.identityPubkey !== identity.pubkey ||
-              pendingSend.recipientPubkey !== recipient ||
-              pendingSend.mailboxUrl !== baseUrl ||
-              pendingSend.body !== body) {
-            setStatus('A previous send has an uncertain result. Retry with the same recipient and text, or discard that pending retry first.');
-            return;
-          }
-          recipientMailboxId = pendingSend.mailboxId;
-          envelope = pendingSend.envelope;
-          idempotencyKey = pendingSend.idempotencyKey;
-        } else {
-          recipientMailboxId = await mailboxId(deps.crypto, recipient);
-          const bundleResult = await mailboxClient.getKeyBundle(recipientMailboxId);
-          if (!bundleResult.ok) {
-            setStatus(bundleLookupMessage(bundleResult.error.code));
-            return;
-          }
-          const sealed = await sealMessage(deps.crypto, deps.random, deps.clock, {
-            from: identity.pubkey,
-            edKey: identity.edKey,
-            recipientBundle: bundleResult.value,
-            body
-          });
-          if (!sealed.ok) {
-            setStatus(`Senden: ${sealed.error.code} ${sealed.error.message}`);
-            return;
-          }
-          envelope = sealed.value;
-          idempotencyKey = makeIdempotencyKey(deps.random);
-          pendingSend = {
-            identityPubkey: identity.pubkey,
-            recipientPubkey: recipient,
-            mailboxUrl: baseUrl,
-            body,
-            mailboxId: recipientMailboxId,
-            envelope,
-            idempotencyKey,
-          };
-          discardPendingButton.hidden = false;
-        }
-
-        const sendResult = await mailboxClient.send(recipientMailboxId, envelope, idempotencyKey);
-        if (!sendResult.ok) {
-          setStatus(`Senden: ${sendResult.error.code} ${sendResult.error.message}. Retry with the same recipient and text to safely repeat this request.`);
+        const recipientMailboxId = await mailboxId(deps.crypto, recipient);
+        const bundleResult = await mailboxClient.getKeyBundle(recipientMailboxId);
+        if (!bundleResult.ok) {
+          setStatus(bundleLookupMessage(bundleResult.error.code));
           return;
         }
-        pendingSend = null;
-        discardPendingButton.hidden = true;
-        const stored: StoredMessage = {
-          serverId: sendResult.value,
+        const sealed = await sealMessage(deps.crypto, deps.random, deps.clock, {
+          from: identity.pubkey,
+          edKey: identity.edKey,
+          recipientBundle: bundleResult.value,
+          body
+        });
+        if (!sealed.ok) {
+          setStatus(`Senden: ${sealed.error.code} ${sealed.error.message}`);
+          return;
+        }
+
+        const pending: PendingSend = {
+          identityPubkey: identity.pubkey,
+          recipientPubkey: recipient,
+          mailboxUrl: baseUrl,
+          body,
+          mailboxId: recipientMailboxId,
+          envelope: sealed.value,
+          idempotencyKey: makeIdempotencyKey(deps.random),
+        };
+        try {
+          persistPendingSend(deps.storage, pending);
+        } catch {
+          setStatus('The encrypted retry state could not be saved locally. The message was not sent.');
+          return;
+        }
+        pendingSend = pending;
+        retryPendingButton.hidden = false;
+        discardPendingButton.hidden = false;
+        recipientInput.disabled = true;
+
+        const result = await mailboxClient.send(
+          pending.mailboxId,
+          pending.envelope,
+          pending.idempotencyKey
+        );
+        if (!result.ok) {
+          setStatus(`Senden: ${result.error.code} ${result.error.message}. The exact encrypted request is saved; use Retry pending send to safely repeat it.`);
+          return;
+        }
+        if (!clearPendingSend()) return;
+
+        store.add({
+          serverId: result.value,
           peer: recipient,
           direction: 'out',
           sentAt: deps.clock.nowIso(),
           body,
           seq: null
-        };
-        store.add(stored);
+        });
         bodyInput.value = '';
-        setStatus(`Sent (${sendResult.value}).`);
+        setStatus(`Sent (${result.value}).`);
       } catch {
-        setStatus('Sending failed. Retry with the same recipient and text to avoid creating a duplicate.');
+        setStatus('Sending failed. The exact encrypted request is saved; use Retry pending send to avoid creating a duplicate.');
       }
     })().finally(() => {
       sending = false;
-      sendButton.disabled = false;
+      sendButton.disabled = pendingSend !== null;
+      retryPendingButton.disabled = false;
+      discardPendingButton.disabled = false;
     });
   });
-  sendSection.append(recipientLabel, recipientInput, bodyLabel, bodyInput, sendButton, discardPendingButton);
+
+  sendSection.append(
+    recipientLabel,
+    recipientInput,
+    bodyLabel,
+    bodyInput,
+    sendButton,
+    retryPendingButton,
+    discardPendingButton
+  );
   container.append(sendSection);
 
   const inboxSection = el('section', 'inbox');
