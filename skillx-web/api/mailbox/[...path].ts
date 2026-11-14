@@ -90,32 +90,22 @@ async function readJson(request: Request): Promise<unknown> {
     throw new ApiError('TOO_LARGE', 'body too large');
   }
 
-  if (request.body === null) throw new ApiError('BAD_REQUEST', 'missing request body');
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
+  // Read through the Web Request API directly. Vercel's Node.js runtime
+  // exposes a lazy parsed request.body helper, so touching request.body and
+  // then treating it as a raw ReadableStream can leave the stream consumed.
+  let raw: string;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_BODY_BYTES) {
-        await reader.cancel();
-        throw new ApiError('TOO_LARGE', 'body too large');
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
+    raw = await request.text();
+  } catch {
+    throw new ApiError('BAD_REQUEST', 'invalid request body');
   }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+
+  const byteLength = new TextEncoder().encode(raw).byteLength;
+  if (byteLength > MAX_BODY_BYTES) throw new ApiError('TOO_LARGE', 'body too large');
+  if (raw.length === 0) throw new ApiError('BAD_REQUEST', 'missing request body');
+
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return JSON.parse(raw) as unknown;
   } catch {
     throw new ApiError('BAD_REQUEST', 'invalid json');
   }
