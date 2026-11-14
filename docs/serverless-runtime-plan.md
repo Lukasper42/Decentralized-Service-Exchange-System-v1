@@ -75,6 +75,10 @@ The serverless mailbox accepts an optional `Idempotency-Key` header containing 3
 
 The database migration adds a private `skillx_runtime.mailbox_idempotency` table and a six-argument mailbox RPC overload. The original four-argument RPC remains available during rollout for older Preview instances.
 
+## Preview CORS configuration
+
+When the web app is served through the neutral alias, set the Preview/branch-scoped Vercel variable `SKILLX_ALLOWED_ORIGIN=https://skillx-web-six.vercel.app`. Without this explicit value, the function's `VERCEL_URL` fallback is the per-deployment hostname and does not match browser requests made through the alias. Keep this variable scoped to Preview and the `feat/serverless-supabase-runtime` branch; it is not a secret.
+
 ## Safe rollout and local cutover
 
 The local Relay, mailbox service, web UI, and Tailscale routes remain untouched while the public runtime is prepared.
