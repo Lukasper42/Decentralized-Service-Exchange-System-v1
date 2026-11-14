@@ -87,7 +87,6 @@ export class SupabaseRpcClient implements SupabaseRpcPort {
           method: 'POST',
           headers: {
             apikey: this.serviceRoleKey,
-            authorization: `Bearer ${this.serviceRoleKey}`,
             'content-type': 'application/json',
             accept: 'application/json',
             'accept-profile': 'public',
