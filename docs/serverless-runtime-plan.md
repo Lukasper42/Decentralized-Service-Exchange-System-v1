@@ -69,6 +69,12 @@ Preserve the existing mailbox protocol and state:
 
 The server continues to store only encrypted message envelopes; it must not receive plaintext. The import RPC is one-time and transactionally seeds the keys, counters, and messages without changing IDs or timestamps.
 
+### Message-post idempotency
+
+The serverless mailbox accepts an optional `Idempotency-Key` header containing 32 lowercase hexadecimal characters. Updated web clients generate one key per encrypted send and retain the exact encrypted envelope and key after an uncertain response. Repeating that request returns the original message ID without consuming another mailbox sequence, message slot, or per-minute post allowance. Reusing the same key with a different envelope returns HTTP 409. Idempotency records expire after the same 14-day period as mailbox messages. Legacy clients without the header remain supported but do not receive retry deduplication.
+
+The database migration adds a private `skillx_runtime.mailbox_idempotency` table and a six-argument mailbox RPC overload. The original four-argument RPC remains available during rollout for older Preview instances.
+
 ## Safe rollout and local cutover
 
 The local Relay, mailbox service, web UI, and Tailscale routes remain untouched while the public runtime is prepared.
