@@ -16,7 +16,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function apiErrorFor(error: unknown): ApiError {
+export class MailboxStorageUnavailableError extends Error {
+  constructor() {
+    super('mailbox storage is temporarily unavailable');
+    this.name = 'MailboxStorageUnavailableError';
+  }
+}
+
+function apiErrorFor(error: unknown): ApiError | MailboxStorageUnavailableError {
   const code = isRecord(error) && typeof error['sqlState'] === 'string'
     ? error['sqlState']
     : '';
@@ -24,7 +31,7 @@ function apiErrorFor(error: unknown): ApiError {
   if (code === 'P0001') return new ApiError('RATE_LIMITED', 'mailbox limit reached');
   if (code === '23505') return new ApiError('CONFLICT', 'mailbox key or message conflicts with stored data');
   if (code === '22023') return new ApiError('BAD_REQUEST', 'invalid mailbox request');
-  return new ApiError('BAD_REQUEST', 'mailbox storage is temporarily unavailable');
+  return new MailboxStorageUnavailableError();
 }
 
 /**
@@ -78,7 +85,7 @@ export class SupabaseMailboxStore {
       if (result === 'created' || result === 'replaced' || result === 'unchanged') return result;
       throw new ApiError('BAD_REQUEST', 'invalid mailbox store response');
     } catch (error) {
-      if (error instanceof ApiError) throw error;
+      if (error instanceof ApiError || error instanceof MailboxStorageUnavailableError) throw error;
       throw apiErrorFor(error);
     }
   }
