@@ -1,0 +1,42 @@
+name: SkillX feature branch tests
+
+on:
+  push:
+    branches:
+      - feat/serverless-supabase-runtime
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test SkillX packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            skill-exchange-ledger/package-lock.json
+            skillx-web/package-lock.json
+            skillx-mailbox/package-lock.json
+
+      - name: Install and test ledger
+        run: |
+          npm ci --prefix skill-exchange-ledger
+          npm test --prefix skill-exchange-ledger
+
+      - name: Install and test web client
+        run: |
+          npm ci --prefix skillx-web
+          npm test --prefix skillx-web
+
+      - name: Install and test mailbox
+        run: |
+          npm ci --prefix skillx-mailbox
+          npm test --prefix skillx-mailbox
