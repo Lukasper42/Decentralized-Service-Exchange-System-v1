@@ -78,6 +78,111 @@ jobs:
         with:
           category: "/language:javascript-typescript-and-actions"
 
+  container-images:
+    name: Build and smoke-test hardened Docker images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate Docker Compose configuration
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-real-password
+          GENESIS_SHA256: "0000000000000000000000000000000000000000000000000000000000000000"
+          DOMAIN: example.invalid
+          ACME_EMAIL: security@example.invalid
+        run: docker compose -f ops/docker-compose.yml --project-directory . --profile mailbox config --quiet
+
+      - name: Build Caddy image
+        run: docker build --pull --file ops/Dockerfile.caddy --tag skillx-caddy:ci .
+
+      - name: Build mailbox image
+        run: docker build --pull --file ops/Dockerfile.mailbox --tag skillx-mailbox:ci .
+
+      - name: Build relay image
+        run: docker build --pull --file ops/Dockerfile.relay --tag skillx-relay:ci .
+
+      - name: Start Caddy with minimum privileges
+        run: |
+          set -euo pipefail
+          docker volume create skillx-caddy-ci-data >/dev/null
+          docker volume create skillx-caddy-ci-config >/dev/null
+          docker run --detach --name skillx-caddy-ci \
+            --cap-drop ALL \
+            --cap-add NET_BIND_SERVICE \
+            --security-opt no-new-privileges:true \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --volume skillx-caddy-ci-data:/data \
+            --volume skillx-caddy-ci-config:/config \
+            --env DOMAIN=localhost \
+            --env ACME_EMAIL=security@example.invalid \
+            skillx-caddy:ci
+
+      - name: Wait for Caddy healthcheck
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 45); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' skillx-caddy-ci)"
+            if [ "$status" = "healthy" ]; then
+              echo "Caddy is healthy and running as a non-root user."
+              exit 0
+            fi
+            running="$(docker inspect --format '{{.State.Running}}' skillx-caddy-ci)"
+            if [ "$running" != "true" ]; then
+              docker logs skillx-caddy-ci
+              exit 1
+            fi
+            sleep 2
+          done
+          docker inspect skillx-caddy-ci
+          docker logs skillx-caddy-ci
+          exit 1
+
+      - name: Start mailbox with minimum privileges
+        run: |
+          set -euo pipefail
+          docker volume create skillx-mailbox-ci-data >/dev/null
+          docker run --detach --name skillx-mailbox-ci \
+            --network container:skillx-caddy-ci \
+            --security-opt no-new-privileges:true \
+            --read-only \
+            --cap-drop ALL \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --volume skillx-mailbox-ci-data:/app/data \
+            --env ALLOWED_ORIGIN=https://localhost \
+            --env PORT=8787 \
+            skillx-mailbox:ci
+
+      - name: Wait for mailbox healthcheck
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 45); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' skillx-mailbox-ci)"
+            if [ "$status" = "healthy" ]; then
+              echo "Mailbox is healthy and running as a non-root user."
+              exit 0
+            fi
+            running="$(docker inspect --format '{{.State.Running}}' skillx-mailbox-ci)"
+            if [ "$running" != "true" ]; then
+              docker logs skillx-mailbox-ci
+              exit 1
+            fi
+            sleep 2
+          done
+          docker inspect skillx-mailbox-ci
+          docker logs skillx-mailbox-ci
+          exit 1
+
+      - name: Clean up smoke-test containers
+        if: always()
+        run: |
+          docker rm --force skillx-mailbox-ci skillx-caddy-ci 2>/dev/null || true
+          docker volume rm skillx-mailbox-ci-data skillx-caddy-ci-data skillx-caddy-ci-config 2>/dev/null || true
+
   zap-baseline:
     name: Passive DAST (ZAP) against Preview
     if: ${{ always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
