@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import { Projector, Relay } from '../../../skill-exchange-ledger/packages/relay/src/index.js';
 import { SupabaseLedgerStore } from '../../../skill-exchange-ledger/packages/relay/src/supabase-ledger-store.js';
 import { loadGenesis } from '../../../skill-exchange-ledger/apps/relay/genesis.js';
@@ -27,6 +28,34 @@ function json(body: unknown, status = 200, origin: string | null = null): Respon
 function apiError(code: string, message: string, path = '', status = 400, origin: string | null = null): Response {
   const body: ErrorBody = { code, message, path };
   return json(body, status, origin);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function makeRpcClient(): SupabaseRpcClient {
+  return new SupabaseRpcClient({
+    url: requiredEnv('SUPABASE_URL'),
+    serviceRoleKey: requiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  });
+}
+
+async function enforceRateLimit(
+  rpc: SupabaseRpcClient,
+  bucketKeys: string[],
+  limits: number[],
+): Promise<boolean> {
+  const allowed = await rpc.rpc<unknown>('skillx_runtime_rate_limit', {
+    p_bucket_keys: bucketKeys,
+    p_limits: limits,
+    p_now_ms: Date.now(),
+    p_window_ms: 60_000,
+  });
+  if (typeof allowed !== 'boolean') {
+    throw new Error('Invalid rate-limit response');
+  }
+  return allowed;
 }
 
 function requiredEnv(name: string): string {
@@ -108,11 +137,7 @@ async function openRelay(): Promise<Relay> {
     platform: process.platform,
   });
 
-  const rpc = new SupabaseRpcClient({
-    url: requiredEnv('SUPABASE_URL'),
-    serviceRoleKey: requiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
-  });
-  const store = new SupabaseLedgerStore(rpc);
+  const store = new SupabaseLedgerStore(makeRpcClient());
   const relay = new Relay({
     store,
     keys: keySource,
@@ -153,6 +178,21 @@ async function handle(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith(PREFIX)) return apiError('NOT_FOUND', 'No such route', '', 404, origin);
   const path = url.pathname.slice(PREFIX.length) || '/';
+
+  // Vercel overwrites x-forwarded-for with the actual public client IP. Only a
+  // one-way hash is persisted in short-lived rate buckets; raw IPs are not stored.
+  const forwardedIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '';
+  const clientIp = isIP(forwardedIp) === 0 ? 'unknown' : forwardedIp;
+  let rateRpc: SupabaseRpcClient;
+  try {
+    rateRpc = makeRpcClient();
+    const ipBucket = 'ip:' + createHash('sha256').update(clientIp).digest('hex');
+    if (!(await enforceRateLimit(rateRpc, [ipBucket], [120]))) {
+      return apiError('RATE_LIMITED', 'Too many requests', path, 429, origin);
+    }
+  } catch {
+    return apiError('STORE_FAILURE', 'Relay is temporarily unavailable', '', 503, origin);
+  }
 
   let relay: Relay;
   try {
@@ -210,6 +250,16 @@ async function handle(request: Request): Promise<Response> {
       raw = JSON.parse(new TextDecoder().decode(body)) as unknown;
     } catch {
       return apiError('BAD_REQUEST', 'Body is not valid JSON', '$', 400, origin);
+    }
+    if (isRecord(raw) && typeof raw['signer'] === 'string' && raw['signer'].length > 0) {
+      const signerBucket = 'signer:' + createHash('sha256').update(raw['signer']).digest('hex');
+      try {
+        if (!(await enforceRateLimit(rateRpc, [signerBucket], [60]))) {
+          return apiError('RATE_LIMITED', 'Signer request limit exceeded', '$.signer', 429, origin);
+        }
+      } catch {
+        return apiError('STORE_FAILURE', 'Relay is temporarily unavailable', '', 503, origin);
+      }
     }
     const result = await relay.submitAsync(raw);
     if (!result.ok) {
