@@ -29,6 +29,7 @@ export type SupabaseFetch = (
 ) => Promise<SupabaseRpcResponse>;
 
 const ALLOWED_FUNCTIONS = new Set([
+  'skillx_runtime_rate_limit',
   'skillx_runtime_ledger_load',
   'skillx_runtime_ledger_append',
   'skillx_runtime_mailbox_get_key',
