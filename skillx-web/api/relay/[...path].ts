@@ -105,7 +105,7 @@ async function openRelay(): Promise<Relay> {
     },
     expectedKeyId: projectorConfig.genesisRelayKey.keyId,
     expectedPublicKey: projectorConfig.genesisRelayKey.pubkey,
-    platform: 'win32',
+    platform: process.platform,
   });
 
   const rpc = new SupabaseRpcClient({
@@ -177,7 +177,7 @@ async function handle(request: Request): Promise<Response> {
   if (request.method === 'GET' && path === '/v1/entries') {
     const from = parseIntParam(url.searchParams.get('from'), 1);
     const to = parseIntParam(url.searchParams.get('to'), relay.tipSequence);
-    if (from === null || to === null || from < 1 || to < 1) {
+    if (from === null || to === null || from < 1) {
       return apiError('BAD_REQUEST', 'from/to must be positive integers', 'query', 400, origin);
     }
     const clamped = Math.min(to, from + MAX_PAGE - 1);
