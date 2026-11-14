@@ -47,7 +47,9 @@ function unavailable(origin: string | null): Response {
 }
 
 function allowedOrigin(): string | null {
-  const raw = process.env.SKILLX_ALLOWED_ORIGIN?.trim();
+  const configured = process.env.SKILLX_ALLOWED_ORIGIN?.trim();
+  const deploymentHost = process.env.VERCEL_URL?.trim();
+  const raw = configured || (deploymentHost ? `https://${deploymentHost}` : '');
   if (!raw) return null;
   const parsed = new URL(raw);
   if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost') {
