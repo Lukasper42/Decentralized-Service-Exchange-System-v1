@@ -12,14 +12,15 @@ import {
   MailboxStorageUnavailableError,
   SupabaseMailboxStore,
 } from '../../../skillx-mailbox/src/supabase-store.js';
-import type { MailboxClock } from '../../../skillx-mailbox/src/supabase-store.js';
+import type { ClockPort } from '../../../skillx-mailbox/src/ports.js';
 import { SupabaseRpcClient } from '../../../skill-exchange-ledger/apps/node-ports/supabase-rpc.js';
 
 const PREFIX = '/api/mailbox';
 const MAX_BODY_BYTES = 24 * 1024;
 
-const clock: MailboxClock = {
+const clock: ClockPort = {
   nowMs: () => Date.now(),
+  nowIso: () => new Date().toISOString(),
 };
 
 function json(body: unknown, status = 200, origin: string | null = null): Response {
