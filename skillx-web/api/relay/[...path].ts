@@ -114,42 +114,62 @@ function parseIntParam(raw: string | null, fallback: number): number | null {
 }
 
 async function openRelay(): Promise<Relay> {
-  const genesisText = requiredEnv('SKILLX_GENESIS_JSON');
-  const expectedGenesisHash = requiredEnv('SKILLX_GENESIS_SHA256').toLowerCase();
-  const actualGenesisHash = createHash('sha256').update(genesisText, 'utf8').digest('hex');
-  if (!/^[a-f0-9]{64}$/.test(expectedGenesisHash) || actualGenesisHash !== expectedGenesisHash) {
-    throw new Error('Public genesis hash check failed');
+  let stage = 'genesis_hash_and_validation';
+  try {
+    const genesisText = requiredEnv('SKILLX_GENESIS_JSON');
+    const expectedGenesisHash = requiredEnv('SKILLX_GENESIS_SHA256').toLowerCase();
+    const actualGenesisHash = createHash('sha256').update(genesisText, 'utf8').digest('hex');
+    if (!/^[a-f0-9]{64}$/.test(expectedGenesisHash) || actualGenesisHash !== expectedGenesisHash) {
+      throw new Error('Public genesis hash check failed');
+    }
+
+    const projectorConfig = loadGenesis({
+      path: 'SKILLX_GENESIS_JSON',
+      expectedSha256: expectedGenesisHash,
+      files: { readText: () => genesisText },
+      policyDirectory: null,
+    });
+
+    stage = 'relay_private_key_validation';
+    const keyText = requiredEnv('SKILLX_RELAY_PRIVATE_KEY');
+    const keySource = loadRelayKeySource({
+      path: 'SKILLX_RELAY_PRIVATE_KEY',
+      files: {
+        statMode: () => 0o600,
+        readText: () => keyText,
+      },
+      expectedKeyId: projectorConfig.genesisRelayKey.keyId,
+      expectedPublicKey: projectorConfig.genesisRelayKey.pubkey,
+      platform: process.platform,
+    });
+
+    stage = 'supabase_ledger_open_and_replay';
+    const store = new SupabaseLedgerStore(makeRpcClient());
+    const relay = new Relay({
+      store,
+      keys: keySource,
+      clock: systemClock,
+      projector: new Projector(projectorConfig),
+      policy: { maxEventBytes: MAX_EVENT_BYTES, checkpointEvery: 100 },
+    });
+    const started = await relay.startAsync();
+    if (!started.ok) {
+      console.error('skillx_relay_initialization_failed', {
+        stage: 'ledger_replay',
+        errorCode: started.error.code,
+      });
+      throw new Error('Persisted ledger verification failed');
+    }
+    return relay;
+  } catch (error) {
+    // Only stage and error class are logged. Never log keys, environment values,
+    // database response bodies, or raw exception messages.
+    console.error('skillx_relay_initialization_failed', {
+      stage,
+      errorName: error instanceof Error ? error.name : 'unknown',
+    });
+    throw error;
   }
-
-  const projectorConfig = loadGenesis({
-    path: 'SKILLX_GENESIS_JSON',
-    expectedSha256: expectedGenesisHash,
-    files: { readText: () => genesisText },
-    policyDirectory: null,
-  });
-  const keyText = requiredEnv('SKILLX_RELAY_PRIVATE_KEY');
-  const keySource = loadRelayKeySource({
-    path: 'SKILLX_RELAY_PRIVATE_KEY',
-    files: {
-      statMode: () => 0o600,
-      readText: () => keyText,
-    },
-    expectedKeyId: projectorConfig.genesisRelayKey.keyId,
-    expectedPublicKey: projectorConfig.genesisRelayKey.pubkey,
-    platform: process.platform,
-  });
-
-  const store = new SupabaseLedgerStore(makeRpcClient());
-  const relay = new Relay({
-    store,
-    keys: keySource,
-    clock: systemClock,
-    projector: new Projector(projectorConfig),
-    policy: { maxEventBytes: MAX_EVENT_BYTES, checkpointEvery: 100 },
-  });
-  const started = await relay.startAsync();
-  if (!started.ok) throw new Error('Persisted ledger verification failed');
-  return relay;
 }
 
 async function handle(request: Request): Promise<Response> {
