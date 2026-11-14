@@ -108,14 +108,33 @@ test('POST/GET round trip with auth and DELETE', async () => {
     await putBundle(env.base, mailboxId, await makeBundle(signer, ISO0));
 
     const envelope = makeEnvelope();
+    const idempotencyKey = 'f'.repeat(32);
     const post = await fetch(`${env.base}/v1/mailbox/${mailboxId}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'idempotency-key': idempotencyKey },
       body: JSON.stringify(envelope),
     });
     assert.equal(post.status, 201);
-    const messageId = readStringField(await post.json(), 'id');
+    const firstBody = await post.json();
+    const messageId = readStringField(firstBody, 'id');
     assert.match(messageId, /^[0-9a-f]{32}$/);
+
+    const retry = await fetch(`${env.base}/v1/mailbox/${mailboxId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': idempotencyKey },
+      body: JSON.stringify(envelope),
+    });
+    assert.equal(retry.status, 200);
+    const retryBody = await retry.json();
+    assert.equal(readStringField(retryBody, 'id'), messageId);
+    assert.equal((retryBody as Record<string, unknown>)['duplicate'], true);
+
+    const conflict = await fetch(`${env.base}/v1/mailbox/${mailboxId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': idempotencyKey },
+      body: JSON.stringify(makeEnvelope()),
+    });
+    assert.equal(conflict.status, 409);
 
     const nowSec = Math.floor(T0 / 1000);
     const path = `/v1/mailbox/${mailboxId}/messages`;
@@ -209,7 +228,7 @@ test('OPTIONS preflight is answered correctly', async () => {
     assert.equal(res.status, 204);
     assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
     assert.equal(res.headers.get('access-control-allow-methods'), 'GET, POST, PUT, DELETE');
-    assert.equal(res.headers.get('access-control-allow-headers'), 'Content-Type, X-Skillx-Auth');
+    assert.equal(res.headers.get('access-control-allow-headers'), 'Content-Type, X-Skillx-Auth, Idempotency-Key');
     assert.equal(res.headers.get('access-control-max-age'), '600');
   } finally {
     await env.close();
