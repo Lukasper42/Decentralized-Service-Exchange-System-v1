@@ -46,10 +46,10 @@ async function enforceRateLimit(
   bucketKeys: string[],
   limits: number[],
 ): Promise<boolean> {
-  const allowed = await rpc.rpc<unknown>('skillx_runtime_rate_limit', {
+  const allowed = await rpc.rpc('skillx_c8_runtime_rate_limit', {
     p_bucket_keys: bucketKeys,
     p_limits: limits,
-    p_now_ms: Date.now(),
+    p_now_ms: systemClock.nowMs(),
     p_window_ms: 60_000,
   });
   if (typeof allowed !== 'boolean') {

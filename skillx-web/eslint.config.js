@@ -22,7 +22,14 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: [
+            'api/mailbox-router.ts',
+            'api/mailbox/*.ts',
+            'api/relay-router.ts',
+            'api/relay/*.ts',
+          ],
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },

@@ -13,14 +13,15 @@ import {
   SupabaseMailboxStore,
 } from '../../../skillx-mailbox/src/supabase-store.js';
 import type { ClockPort } from '../../../skillx-mailbox/src/ports.js';
+import { systemClock } from '../../../skill-exchange-ledger/apps/node-ports/index.js';
 import { SupabaseRpcClient } from '../../../skill-exchange-ledger/apps/node-ports/supabase-rpc.js';
 
 const PREFIX = '/api/mailbox';
 const MAX_BODY_BYTES = 24 * 1024;
 
 const clock: ClockPort = {
-  nowMs: () => Date.now(),
-  nowIso: () => new Date().toISOString(),
+  nowMs: () => systemClock.nowMs(),
+  nowIso: () => new Date(systemClock.nowMs()).toISOString(),
 };
 
 function json(body: unknown, status = 200, origin: string | null = null): Response {
@@ -69,10 +70,10 @@ async function allowIpRequest(rpc: SupabaseRpcClient, request: Request): Promise
   const forwardedIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '';
   const clientIp = isIP(forwardedIp) === 0 ? 'unknown' : forwardedIp;
   const bucket = 'ip:' + createHash('sha256').update(clientIp).digest('hex');
-  const allowed = await rpc.rpc<unknown>('skillx_runtime_rate_limit', {
+  const allowed = await rpc.rpc('skillx_runtime_rate_limit', {
     p_bucket_keys: [bucket],
     p_limits: [120],
-    p_now_ms: Date.now(),
+    p_now_ms: clock.nowMs(),
     p_window_ms: 60_000,
   });
   if (typeof allowed !== 'boolean') throw new Error('Invalid rate limit response');

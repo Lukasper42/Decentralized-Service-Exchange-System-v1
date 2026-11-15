@@ -30,8 +30,9 @@ export type SupabaseFetch = (
 
 const ALLOWED_FUNCTIONS = new Set([
   'skillx_runtime_rate_limit',
-  'skillx_runtime_ledger_load',
-  'skillx_runtime_ledger_append',
+  'skillx_c8_runtime_rate_limit',
+  'skillx_c8_runtime_ledger_load',
+  'skillx_c8_runtime_ledger_append',
   'skillx_runtime_mailbox_get_key',
   'skillx_runtime_mailbox_put_key',
   'skillx_runtime_mailbox_add_message',

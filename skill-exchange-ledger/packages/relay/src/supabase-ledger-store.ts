@@ -67,7 +67,7 @@ export class SupabaseLedgerStore extends MemoryStore {
 
     let rows: unknown;
     try {
-      rows = await this.rpc.rpc<unknown>('skillx_runtime_ledger_load');
+      rows = await this.rpc.rpc<unknown>('skillx_c8_runtime_ledger_load');
     } catch {
       throw new StoreError('failed to load the persisted ledger');
     }
@@ -123,7 +123,7 @@ export class SupabaseLedgerStore extends MemoryStore {
     }
 
     try {
-      await this.rpc.rpc('skillx_runtime_ledger_append', {
+      await this.rpc.rpc('skillx_c8_runtime_ledger_append', {
         p_sequence: entry.receipt.sequence,
         p_event_hash: hash,
         p_signer: entry.event.signer,

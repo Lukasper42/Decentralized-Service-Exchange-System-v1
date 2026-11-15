@@ -19,10 +19,10 @@ class FakeRpc implements SupabaseRpcPort {
     functionName: string,
     args: Readonly<Record<string, unknown>> = {},
   ): Promise<T> {
-    if (functionName === 'skillx_runtime_ledger_load') {
+    if (functionName === 'skillx_c8_runtime_ledger_load') {
       return this.rows.map((row) => ({ ...row })) as T;
     }
-    if (functionName !== 'skillx_runtime_ledger_append') {
+    if (functionName !== 'skillx_c8_runtime_ledger_append') {
       throw new Error('unexpected RPC function');
     }
 
