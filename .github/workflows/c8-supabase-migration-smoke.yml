@@ -1,17 +1,17 @@
-name: C8 Supabase migration smoke test
+name: SkillX Supabase migration smoke tests
 
 on:
   push:
     branches:
       - maintenance/complete-runtime
     paths:
-      - supabase/migrations/20261115110201_skillx_c8_runtime_init.sql
-      - supabase/tests/c8_runtime_migration_smoke.sql
+      - supabase/migrations/**
+      - supabase/tests/**
       - .github/workflows/c8-supabase-migration-smoke.yml
   pull_request:
     paths:
-      - supabase/migrations/20261115110201_skillx_c8_runtime_init.sql
-      - supabase/tests/c8_runtime_migration_smoke.sql
+      - supabase/migrations/**
+      - supabase/tests/**
       - .github/workflows/c8-supabase-migration-smoke.yml
   workflow_dispatch:
 
@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   migration-smoke:
-    name: Apply C8 migration to disposable PostgreSQL
+    name: Rebuild SkillX schemas on disposable PostgreSQL
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -57,12 +57,27 @@ jobs:
           GRANT USAGE ON SCHEMA public TO service_role;
           SQL
 
-      - name: Apply tracked C8 migration
+      - name: Apply all versioned migrations in order
         run: |
-          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
-            -f supabase/migrations/20261115110201_skillx_c8_runtime_init.sql
+          for migration in \
+            supabase/migrations/20261113151720_create_skillx_notion_migration_schema.sql \
+            supabase/migrations/20261113153017_skillx_notion_archive_schema_v1.sql \
+            supabase/migrations/20261114145249_skillx_runtime_initial.sql \
+            supabase/migrations/20261114150735_skillx_runtime_remove_seed_import.sql \
+            supabase/migrations/20261114163452_mailbox_message_idempotency.sql \
+            supabase/migrations/20261114164234_mailbox_idempotent_rpc_name.sql \
+            supabase/migrations/20261115110201_skillx_c8_runtime_init.sql
+          do
+            echo "Applying $migration"
+            psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f "$migration"
+          done
 
-      - name: Verify grants, RLS, append-only ledger, RPCs, and rate limiting
+      - name: Verify C8 runtime
         run: |
           psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
             -f supabase/tests/c8_runtime_migration_smoke.sql
+
+      - name: Verify archive and mailbox runtime
+        run: |
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/skillx_runtime_migration_smoke.sql
