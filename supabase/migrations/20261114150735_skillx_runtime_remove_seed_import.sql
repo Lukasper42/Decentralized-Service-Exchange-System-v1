@@ -1,0 +1,8 @@
+-- Migration-history compatibility marker.
+--
+-- The original live migration history records removal of the one-time runtime
+-- seed import at version 20261114150735. The tracked baseline migration
+-- 20261114145249_skillx_runtime_initial.sql is intentionally reconstructed
+-- in its already-clean, no-seed form. Therefore there is no SQL operation to
+-- run here: applying a data import, a DELETE, or a schema DROP would be unsafe
+-- and would not reproduce the desired final runtime schema.
