@@ -5,6 +5,7 @@ import { systemClock } from '../node-ports/index.js';
 import { createPgSqlPort, pgConnectionOptions } from '../node-ports/pg-sql-port.js';
 import type { PgPoolLike } from '../node-ports/pg-sql-port.js';
 import {
+  FileStore,
   MemoryStore,
   PostgresStore,
   Projector,
@@ -20,7 +21,8 @@ import { loadRelayKeySource } from './key-file.js';
 export interface RelayConfig {
   port: number;
   host: string;
-  mode: 'memory' | 'postgres';
+  mode: 'memory' | 'postgres' | 'file';
+  ledgerFile: string | null;
   genesisFile: string;
   genesisSha256: string;
   policyDirectory: string | null;
@@ -92,11 +94,19 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): R
 
   const modeRaw = env['RELAY_MODE'];
   const modeValue = modeRaw === undefined || modeRaw.trim() === '' ? 'memory' : modeRaw.trim();
-  let mode: 'memory' | 'postgres';
-  if (modeValue === 'memory' || modeValue === 'postgres') {
+  let mode: 'memory' | 'postgres' | 'file';
+  if (modeValue === 'memory' || modeValue === 'postgres' || modeValue === 'file') {
     mode = modeValue;
   } else {
-    throw new Error('RELAY_MODE must be memory or postgres');
+    throw new Error('RELAY_MODE must be memory, file or postgres');
+  }
+
+  const ledgerFile = readOptional(env, 'LEDGER_FILE');
+  if (mode === 'file' && ledgerFile === null) {
+    throw new Error('LEDGER_FILE is required when RELAY_MODE=file');
+  }
+  if (mode !== 'file' && ledgerFile !== null) {
+    throw new Error('LEDGER_FILE is only valid when RELAY_MODE=file');
   }
 
   const genesisFile = readRequired(env, 'GENESIS_FILE');
@@ -136,6 +146,7 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): R
     port,
     host,
     mode,
+    ledgerFile,
     genesisFile,
     genesisSha256,
     policyDirectory,
@@ -197,9 +208,12 @@ async function main(): Promise<void> {
   });
 
   let sql: ReturnType<typeof createPgSqlPort> | null = null;
-  let store: MemoryStore | PostgresStore;
+  let store: MemoryStore | PostgresStore | FileStore;
   if (config.mode === 'memory') {
     store = new MemoryStore();
+  } else if (config.mode === 'file') {
+    if (config.ledgerFile === null) throw new Error('LEDGER_FILE is required when RELAY_MODE=file');
+    store = new FileStore({ path: config.ledgerFile, fsync: 'always' });
   } else {
     const pgModuleName = 'pg';
     const mod: unknown = await import(pgModuleName);

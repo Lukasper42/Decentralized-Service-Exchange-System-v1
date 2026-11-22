@@ -10,6 +10,7 @@ test('readConfig applies defaults', () => {
   assert.equal(config.port, 3000);
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.mode, 'memory');
+  assert.equal(config.ledgerFile, null);
   assert.equal(config.policyDirectory, null);
   assert.equal(config.allowedOrigin, null);
   assert.equal(config.maxBodyBytes, 65536);
@@ -28,6 +29,15 @@ test('readConfig reads overrides and trims values', () => {
   assert.deepEqual(config.trustedProxies, ['10.0.0.1', '::1']);
 });
 
+test('readConfig requires and records the durable file path for file mode', () => {
+  const config = readConfig({ ...base, RELAY_MODE: 'file', LEDGER_FILE: 'data/c8-test.ndjson' });
+  assert.equal(config.mode, 'file');
+  assert.equal(config.ledgerFile, 'data/c8-test.ndjson');
+  assert.throws(() => readConfig({ ...base, RELAY_MODE: 'file' }), /LEDGER_FILE is required/);
+  assert.throws(() => readConfig({ ...base, RELAY_MODE: 'file', LEDGER_FILE: '  ' }), /LEDGER_FILE is required/);
+  assert.throws(() => readConfig({ ...base, LEDGER_FILE: 'data/c8-test.ndjson' }), /only valid when RELAY_MODE=file/);
+});
+
 test('readConfig rejects missing required variables by name', () => {
   for (const name of Object.keys(base)) {
     const env: Record<string, string | undefined> = { ...base };
@@ -42,7 +52,7 @@ test('readConfig rejects bad numbers and modes without echoing the value', () =>
     assert.throws(() => readConfig({ ...base, PORT: value }), (error: unknown) => error instanceof Error && /PORT/.test(error.message) && !error.message.includes(value));
   }
   assert.throws(() => readConfig({ ...base, RATE_PER_IP: '0' }), /RATE_PER_IP/);
-  assert.throws(() => readConfig({ ...base, RELAY_MODE: 'sqlite' }), /RELAY_MODE must be memory or postgres/);
+  assert.throws(() => readConfig({ ...base, RELAY_MODE: 'sqlite' }), /RELAY_MODE must be memory, file or postgres/);
 });
 
 test('readConfig: the report receiver is off by default and needs allowlist and outbox together', () => {
