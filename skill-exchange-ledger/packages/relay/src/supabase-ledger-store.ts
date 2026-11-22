@@ -8,6 +8,16 @@ export interface SupabaseRpcPort {
   rpc<T = unknown>(functionName: string, args?: Readonly<Record<string, unknown>>): Promise<T>;
 }
 
+export interface SupabaseLedgerRpcFunctions {
+  readonly load: string;
+  readonly append: string;
+}
+
+const DEFAULT_RPC_FUNCTIONS: SupabaseLedgerRpcFunctions = {
+  load: 'skillx_c8_runtime_ledger_load',
+  append: 'skillx_c8_runtime_ledger_append',
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -47,11 +57,16 @@ function positiveSequence(value: unknown): number {
  */
 export class SupabaseLedgerStore extends MemoryStore {
   private readonly rpc: SupabaseRpcPort;
+  private readonly functions: SupabaseLedgerRpcFunctions;
   private opened = false;
 
-  constructor(rpc: SupabaseRpcPort) {
+  constructor(
+    rpc: SupabaseRpcPort,
+    functions: SupabaseLedgerRpcFunctions = DEFAULT_RPC_FUNCTIONS,
+  ) {
     super();
     this.rpc = rpc;
+    this.functions = functions;
   }
 
   override async open(): Promise<void> {
@@ -61,7 +76,7 @@ export class SupabaseLedgerStore extends MemoryStore {
 
     let rows: unknown;
     try {
-      rows = await this.rpc.rpc('skillx_c8_runtime_ledger_load');
+      rows = await this.rpc.rpc(this.functions.load);
     } catch {
       throw new StoreError('failed to load the persisted ledger');
     }
@@ -117,7 +132,7 @@ export class SupabaseLedgerStore extends MemoryStore {
     }
 
     try {
-      await this.rpc.rpc('skillx_c8_runtime_ledger_append', {
+      await this.rpc.rpc(this.functions.append, {
         p_sequence: entry.receipt.sequence,
         p_event_hash: hash,
         p_signer: entry.event.signer,
