@@ -266,6 +266,11 @@ async function handle(request: Request): Promise<Response> {
       ? apiError('NOT_FOUND', 'Unknown event', path, 404, origin)
       : json(entry, 200, origin);
   }
+  if (request.method === 'GET' && path === '/v1/signers/tip') {
+    const signer = url.searchParams.get('signer');
+    if (signer === null || signer.length === 0) return apiError('BAD_REQUEST', 'Missing signer', 'query.signer', 400, origin);
+    return json({ signer, tip: relay.signerTip(signer) }, 200, origin);
+  }
   const signerMatch = /^\/v1\/signers\/([^/]+)\/tip$/.exec(path);
   if (request.method === 'GET' && signerMatch !== null) {
     let signer: string;

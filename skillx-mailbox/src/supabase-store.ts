@@ -83,7 +83,7 @@ export class SupabaseMailboxStore {
 
   async putKey(bundle: KeyBundle, mailboxId: string): Promise<'created' | 'replaced' | 'unchanged'> {
     try {
-      const result = await this.rpc.rpc<unknown>('skillx_runtime_mailbox_put_key', {
+      const result = await this.rpc.rpc('skillx_runtime_mailbox_put_key', {
         p_mailbox_id: mailboxId,
         p_identity_pubkey: bundle.identity_pubkey,
         p_x_pubkey: bundle.x_pubkey,
@@ -111,7 +111,7 @@ export class SupabaseMailboxStore {
       ? null
       : createHash('sha256').update(JSON.stringify(envelope), 'utf8').digest('hex');
     try {
-      const result = await this.rpc.rpc<unknown>('skillx_runtime_mailbox_add_message_idempotent', {
+      const result = await this.rpc.rpc('skillx_runtime_mailbox_add_message_idempotent', {
         p_mailbox_id: mailboxId,
         p_message_id: id,
         p_envelope: envelope,
@@ -159,7 +159,7 @@ export class SupabaseMailboxStore {
 
   async deleteMessage(mailboxId: string, messageId: string): Promise<boolean> {
     try {
-      const result = await this.rpc.rpc<unknown>('skillx_runtime_mailbox_delete_message', {
+      const result = await this.rpc.rpc('skillx_runtime_mailbox_delete_message', {
         p_mailbox_id: mailboxId,
         p_message_id: messageId,
         p_now: this.clock.nowMs(),

@@ -34,7 +34,8 @@ class FakeMailboxRpc implements MailboxRpcPort {
     args: Readonly<Record<string, unknown>> = {},
   ): Promise<T> {
     if (this.fail) throw new Error('injected network failure');
-    const mailboxId = String(args['p_mailbox_id'] ?? '');
+    const mailboxIdValue = args['p_mailbox_id'];
+    const mailboxId = typeof mailboxIdValue === 'string' ? mailboxIdValue : '';
     const now = Number(args['p_now'] ?? args['p_stored_at'] ?? 0);
 
     switch (functionName) {
@@ -126,7 +127,8 @@ class FakeMailboxRpc implements MailboxRpcPort {
       }
 
       case 'skillx_runtime_mailbox_delete_message': {
-        const messageId = String(args['p_message_id'] ?? '');
+        const messageIdValue = args['p_message_id'];
+        const messageId = typeof messageIdValue === 'string' ? messageIdValue : '';
         const current = (this.messages.get(mailboxId) ?? []).filter((message) => now - message.stored_at < 14 * 24 * 60 * 60 * 1000);
         const index = current.findIndex((message) => message.id === messageId);
         if (index < 0) {

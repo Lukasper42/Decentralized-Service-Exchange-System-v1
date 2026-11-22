@@ -149,6 +149,11 @@ export function createRelayServer(relay: Relay, clock: ClockPort, policy: HttpPo
       const entry = relay.receiptFor(hash);
       return entry === null ? sendError(res, { code: 'NOT_FOUND', message: 'Unknown event', path }, origin) : send(res, 200, entry, origin);
     }
+    if (path === '/v1/signers/tip') {
+      const signer = url.searchParams.get('signer');
+      if (signer === null || signer.length === 0) return sendError(res, { code: 'BAD_REQUEST', message: 'Missing signer', path: 'query.signer' }, origin);
+      return send(res, 200, { signer, tip: relay.signerTip(signer) }, origin);
+    }
     const tip = /^\/v1\/signers\/([^/]+)\/tip$/.exec(path);
     if (tip !== null) {
       let signer: string;

@@ -40,6 +40,12 @@ test('submit returns 201 with a receipt, 200 for the duplicate, and the read end
     assert.equal(found.status, 200);
     const signerTip = await (await fetch(`${base}/v1/signers/${encodeURIComponent(buyer.publicKey)}/tip`)).json() as { tip: string };
     assert.equal(signerTip.tip, eventHash(event));
+    const unusualSigner = 's/+';
+    const queryTipResponse = await fetch(`${base}/v1/signers/tip?signer=${encodeURIComponent(unusualSigner)}`);
+    assert.equal(queryTipResponse.status, 200);
+    assert.deepEqual(await queryTipResponse.json(), { signer: unusualSigner, tip: null });
+    const missingSigner = await fetch(`${base}/v1/signers/tip`);
+    assert.equal(missingSigner.status, 400);
     assert.equal((await fetch(`${base}/v1/health`)).status, 200);
     const cp = await fetch(`${base}/v1/checkpoints/latest`);
     assert.equal(cp.status, 200);
