@@ -1,0 +1,68 @@
+name: C8 Supabase migration smoke test
+
+on:
+  push:
+    branches:
+      - maintenance/complete-runtime
+    paths:
+      - supabase/migrations/20261115110201_skillx_c8_runtime_init.sql
+      - supabase/tests/c8_runtime_migration_smoke.sql
+      - .github/workflows/c8-supabase-migration-smoke.yml
+  pull_request:
+    paths:
+      - supabase/migrations/20261115110201_skillx_c8_runtime_init.sql
+      - supabase/tests/c8_runtime_migration_smoke.sql
+      - .github/workflows/c8-supabase-migration-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-smoke:
+    name: Apply C8 migration to disposable PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: skillx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d skillx_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/skillx_test
+      PGPASSWORD: postgres
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Prepare Supabase-like roles
+        run: |
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+          GRANT USAGE ON SCHEMA public TO service_role;
+          SQL
+
+      - name: Apply tracked C8 migration
+        run: |
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+            -f supabase/migrations/20261115110201_skillx_c8_runtime_init.sql
+
+      - name: Verify grants, RLS, append-only ledger, RPCs, and rate limiting
+        run: |
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/c8_runtime_migration_smoke.sql
