@@ -134,9 +134,7 @@ export class SupabaseRpcClient implements SupabaseRpcPort {
       }
     } catch (error) {
       if (error instanceof SupabaseRpcError) throw error;
-      throw new Error('Supabase RPC request failed', {
-        cause: error instanceof Error ? error.name : 'unknown',
-      });
+      throw new Error('Supabase RPC request failed', { cause: error });
     } finally {
       clearTimeout(timeout);
     }
