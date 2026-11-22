@@ -1,10 +1,12 @@
 // apps/relay/genesis.test.ts
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createIdentity, relayKeyId, sha256Hex } from '../../packages/crypto/src/index.js';
+import { actionHash, approvalActionFor, createIdentity, relayKeyId, sha256Hex, signApproval } from '../../packages/crypto/src/index.js';
 import { defaultBetaParams, policyParamsHash } from '../../packages/domain/src/policy.js';
 import type { PolicyParams } from '../../packages/domain/src/policy.js';
 import { Projector } from '../../packages/relay/src/projection.js';
+import { replayLedger } from '../../packages/relay/src/relay.js';
+import { RelayRig } from '../../packages/testing/src/relay-fixtures.js';
 import { loadGenesis } from './genesis.js';
 import type { GenesisFilePort } from './genesis.js';
 
@@ -303,4 +305,85 @@ test('seeded mutations never crash', () => {
       assert.ok(error instanceof Error);
     }
   }
+});
+
+test('PolicyUpdated history replays only with the exact hash-addressed policy document', () => {
+  const rig = new RelayRig();
+  const genesisPolicy = rig.genesisPolicy();
+  const genesis = makeGenesis(rig.genesisKey, genesisPolicy, rig.cast.buyer.publicKey);
+  const genesisText = JSON.stringify(genesis);
+  const nextPolicy: PolicyParams = {
+    ...genesisPolicy,
+    version: 2,
+    policyId: 'rig-beta-v2',
+  };
+  const paramsHash = policyParamsHash(nextPolicy);
+
+  const validFiles = new MemoryGenesisFiles({
+    'genesis.json': genesisText,
+    ['policies/' + paramsHash + '.json']: JSON.stringify(nextPolicy),
+  });
+  const validConfig = loadGenesis({
+    path: 'genesis.json',
+    expectedSha256: sha256Hex(genesisText),
+    files: validFiles,
+    policyDirectory: 'policies',
+  });
+
+  // Exercise the same policy-document source through real relay submissions and replay.
+  rig.projector = new Projector(validConfig);
+  rig.restart();
+  rig.bootstrap();
+
+  const [approverOne, approverTwo] = rig.approvers;
+  assert.ok(approverOne !== undefined && approverTwo !== undefined);
+  for (const approver of [approverOne, approverTwo]) {
+    rig.now += 1000;
+    const created = rig.createAccount(approver);
+    assert.ok(created.ok, created.ok ? undefined : created.error.message);
+  }
+
+  const updateFields = {
+    policy_version: 2,
+    params_hash: paramsHash,
+    activation_sequence: rig.relay.tipSequence + 2,
+  };
+  const approvalHash = actionHash(approvalActionFor({
+    type: 'PolicyUpdated',
+    payload: { ...updateFields, approvals: [] },
+  }));
+  const approvals = [approverOne, approverTwo].map((approver) =>
+    signApproval(approvalHash, approver.publicKey, approver.privateKey),
+  );
+
+  rig.now += 1000;
+  const submitted = rig.submit('PolicyUpdated', { ...updateFields, approvals }, approverOne);
+  assert.ok(submitted.ok, submitted.ok ? undefined : submitted.error.message);
+
+  const entries = rig.store.all();
+  const replayed = replayLedger(entries, rig.projector);
+  assert.ok(replayed.ok, replayed.ok ? undefined : replayed.error.message);
+  if (replayed.ok) {
+    const v2 = replayed.value.state.policy.entries.find((entry) => entry.version === 2);
+    assert.equal(v2?.paramsHash, paramsHash);
+  }
+
+  // Keep the requested manifest path/hash but substitute different valid policy data.
+  const mismatchedPolicy: PolicyParams = {
+    ...nextPolicy,
+    policyId: 'different-policy-with-the-same-manifest-key',
+  };
+  const mismatchedFiles = new MemoryGenesisFiles({
+    'genesis.json': genesisText,
+    ['policies/' + paramsHash + '.json']: JSON.stringify(mismatchedPolicy),
+  });
+  const mismatchedConfig = loadGenesis({
+    path: 'genesis.json',
+    expectedSha256: sha256Hex(genesisText),
+    files: mismatchedFiles,
+    policyDirectory: 'policies',
+  });
+
+  const rejectedReplay = replayLedger(entries, new Projector(mismatchedConfig));
+  assert.equal(rejectedReplay.ok, false);
 });
