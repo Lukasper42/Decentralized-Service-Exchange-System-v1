@@ -73,7 +73,7 @@ export class HttpTransport implements LedgerTransport {
   }
 
   async signerTip(signer: Pubkey): Promise<ClientResult<Hash | null>> {
-    const result = await this.#call('GET', `/v1/signers/${encodeURIComponent(signer)}/tip`);
+    const result = await this.#call('GET', `/v1/signers/tip?signer=${encodeURIComponent(signer)}`);
     if (!result.ok) return result;
     const json = result.value.json;
     if (!isRecord(json) || !(json.tip === null || typeof json.tip === 'string')) return cerr('TRANSPORT', 'Unexpected signer tip response', '/v1/signers');

@@ -8,12 +8,6 @@ export interface SupabaseRpcPort {
   rpc<T = unknown>(functionName: string, args?: Readonly<Record<string, unknown>>): Promise<T>;
 }
 
-interface LedgerRow {
-  sequence: number | string;
-  checksum: string;
-  entry_json: string;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -67,7 +61,7 @@ export class SupabaseLedgerStore extends MemoryStore {
 
     let rows: unknown;
     try {
-      rows = await this.rpc.rpc<unknown>('skillx_c8_runtime_ledger_load');
+      rows = await this.rpc.rpc('skillx_c8_runtime_ledger_load');
     } catch {
       throw new StoreError('failed to load the persisted ledger');
     }
@@ -77,7 +71,7 @@ export class SupabaseLedgerStore extends MemoryStore {
     }
 
     for (let index = 0; index < rows.length; index += 1) {
-      const raw = rows[index];
+      const raw: unknown = rows[index];
       if (!isRecord(raw)) throw new StoreError(`invalid persisted ledger row ${index + 1}`);
 
       const sequence = positiveSequence(raw['sequence']);

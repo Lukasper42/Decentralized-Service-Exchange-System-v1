@@ -68,7 +68,12 @@ export class SupabaseRpcClient implements SupabaseRpcPort {
     }
     this.baseUrl = url.toString().replace(/\/+$/, '');
     this.serviceRoleKey = options.serviceRoleKey;
-    this.fetchPort = options.fetchPort ?? (fetch as unknown as SupabaseFetch);
+    this.fetchPort = options.fetchPort ?? ((input, init) => fetch(input, {
+      method: init.method,
+      headers: { ...init.headers },
+      body: init.body,
+      signal: init.signal,
+    }));
     this.timeoutMs = options.timeoutMs ?? 7000;
   }
 
@@ -129,7 +134,7 @@ export class SupabaseRpcClient implements SupabaseRpcPort {
       }
     } catch (error) {
       if (error instanceof SupabaseRpcError) throw error;
-      throw new Error('Supabase RPC request failed');
+      throw new Error('Supabase RPC request failed', { cause: error });
     } finally {
       clearTimeout(timeout);
     }
