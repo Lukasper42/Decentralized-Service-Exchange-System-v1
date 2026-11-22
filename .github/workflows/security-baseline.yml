@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feat/serverless-supabase-runtime
+      - maintenance/complete-runtime
   pull_request:
     branches:
       - master
+      - feat/serverless-supabase-runtime
   schedule:
     - cron: "27 3 * * 1"
   workflow_dispatch:
@@ -185,7 +187,8 @@ jobs:
 
   zap-baseline:
     name: Passive DAST (ZAP) against Preview
-    if: ${{ always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    # The shared ZAP target belongs to the integration branch; working-branch pushes use their own Vercel previews.
+    if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat/serverless-supabase-runtime') || github.event_name == 'workflow_dispatch') }}
     needs:
       - trivy
       - codeql
