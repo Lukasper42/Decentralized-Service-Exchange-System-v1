@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import { Projector, Relay } from '../../../skill-exchange-ledger/packages/relay/src/index.js';
 import { SupabaseLedgerStore } from '../../../skill-exchange-ledger/packages/relay/src/supabase-ledger-store.js';
 import { loadGenesis } from '../../../skill-exchange-ledger/apps/relay/genesis.js';
+import { createPolicyDocumentFiles } from '../../src/api/policy-documents.js';
 import { loadRelayKeySource } from '../../../skill-exchange-ledger/apps/relay/key-file.js';
 import { systemClock } from '../../../skill-exchange-ledger/apps/node-ports/index.js';
 import { SupabaseRpcClient } from '../../../skill-exchange-ledger/apps/node-ports/supabase-rpc.js';
@@ -136,8 +137,8 @@ async function openRelay(): Promise<Relay> {
     const projectorConfig = loadGenesis({
       path: 'SKILLX_GENESIS_JSON',
       expectedSha256: expectedGenesisHash,
-      files: { readText: () => genesisText },
-      policyDirectory: null,
+      files: createPolicyDocumentFiles(genesisText, process.env.SKILLX_POLICY_DOCUMENTS_JSON),
+      policyDirectory: 'policies',
     });
 
     stage = 'relay_private_key_validation';
