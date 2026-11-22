@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import { Projector, Relay } from '../../../skill-exchange-ledger/packages/relay/src/index.js';
 import { SupabaseLedgerStore } from '../../../skill-exchange-ledger/packages/relay/src/supabase-ledger-store.js';
+import type { SupabaseLedgerRpcFunctions } from '../../../skill-exchange-ledger/packages/relay/src/supabase-ledger-store.js';
 import { loadGenesis } from '../../../skill-exchange-ledger/apps/relay/genesis.js';
 import { createPolicyDocumentFiles } from '../../src/api/policy-documents.js';
 import { loadRelayKeySource } from '../../../skill-exchange-ledger/apps/relay/key-file.js';
@@ -12,6 +13,43 @@ const PREFIX = '/api/relay';
 const MAX_BODY_BYTES = 65_536;
 const MAX_EVENT_BYTES = 4_096;
 const MAX_PAGE = 500;
+
+interface RelayRuntimeProfile {
+  readonly ledgerFunctions: SupabaseLedgerRpcFunctions;
+  readonly rateLimitFunction: string;
+  readonly perIpLimit: number;
+  readonly perSignerLimit: number;
+}
+
+function readRelayRuntimeProfile(): RelayRuntimeProfile {
+  const configured = process.env.SKILLX_RELAY_RPC_PROFILE?.trim() || 'default';
+  if (configured === 'default') {
+    return {
+      ledgerFunctions: {
+        load: 'skillx_c8_runtime_ledger_load',
+        append: 'skillx_c8_runtime_ledger_append',
+      },
+      rateLimitFunction: 'skillx_c8_runtime_rate_limit',
+      perIpLimit: 120,
+      perSignerLimit: 60,
+    };
+  }
+  if (configured === 'c8-14d-test') {
+    return {
+      ledgerFunctions: {
+        load: 'skillx_c8_14d_test_ledger_load',
+        append: 'skillx_c8_14d_test_ledger_append',
+      },
+      rateLimitFunction: 'skillx_c8_14d_test_rate_limit',
+      // The isolated training setup submits 457 signed entries and performs
+      // client-side catch-up reads. This larger quota applies only to the
+      // dedicated 14-day test branch and its separate rate-bucket table.
+      perIpLimit: 3000,
+      perSignerLimit: 500,
+    };
+  }
+  throw new Error('Unsupported relay RPC profile');
+}
 
 type ErrorBody = { code: string; message: string; path: string };
 
@@ -46,8 +84,9 @@ async function enforceRateLimit(
   rpc: SupabaseRpcClient,
   bucketKeys: string[],
   limits: number[],
+  functionName: string,
 ): Promise<boolean> {
-  const allowed = await rpc.rpc('skillx_c8_runtime_rate_limit', {
+  const allowed = await rpc.rpc(functionName, {
     p_bucket_keys: bucketKeys,
     p_limits: limits,
     p_now_ms: systemClock.nowMs(),
@@ -100,7 +139,7 @@ function parseIntParam(raw: string | null, fallback: number): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
-async function openRelay(): Promise<Relay> {
+async function openRelay(profile: RelayRuntimeProfile): Promise<Relay> {
   let stage = 'genesis_hash_and_validation';
   try {
     stage = 'genesis_json_environment';
@@ -155,7 +194,7 @@ async function openRelay(): Promise<Relay> {
     });
 
     stage = 'supabase_ledger_open_and_replay';
-    const store = new SupabaseLedgerStore(makeRpcClient());
+    const store = new SupabaseLedgerStore(makeRpcClient(), profile.ledgerFunctions);
     const relay = new Relay({
       store,
       keys: keySource,
@@ -219,11 +258,13 @@ async function handle(request: Request): Promise<Response> {
   // one-way hash is persisted in short-lived rate buckets; raw IPs are not stored.
   const forwardedIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '';
   const clientIp = isIP(forwardedIp) === 0 ? 'unknown' : forwardedIp;
+  let profile: RelayRuntimeProfile;
   let rateRpc: SupabaseRpcClient;
   try {
+    profile = readRelayRuntimeProfile();
     rateRpc = makeRpcClient();
     const ipBucket = 'ip:' + createHash('sha256').update(clientIp).digest('hex');
-    if (!(await enforceRateLimit(rateRpc, [ipBucket], [120]))) {
+    if (!(await enforceRateLimit(rateRpc, [ipBucket], [profile.perIpLimit], profile.rateLimitFunction))) {
       return apiError('RATE_LIMITED', 'Too many requests', path, 429, origin);
     }
   } catch {
@@ -232,7 +273,7 @@ async function handle(request: Request): Promise<Response> {
 
   let relay: Relay;
   try {
-    relay = await openRelay();
+    relay = await openRelay(profile);
   } catch {
     // Avoid leaking key, database, or Postgres details to anonymous clients.
     return apiError('STORE_FAILURE', 'Relay is temporarily unavailable', '', 503, origin);
@@ -295,7 +336,7 @@ async function handle(request: Request): Promise<Response> {
     if (isRecord(raw) && typeof raw['signer'] === 'string' && raw['signer'].length > 0) {
       const signerBucket = 'signer:' + createHash('sha256').update(raw['signer']).digest('hex');
       try {
-        if (!(await enforceRateLimit(rateRpc, [signerBucket], [60]))) {
+        if (!(await enforceRateLimit(rateRpc, [signerBucket], [profile.perSignerLimit], profile.rateLimitFunction))) {
           return apiError('RATE_LIMITED', 'Signer request limit exceeded', '$.signer', 429, origin);
         }
       } catch {
