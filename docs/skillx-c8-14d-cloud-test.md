@@ -13,6 +13,12 @@ This runbook applies only to the Preview branch `feat/c8-14d-serverless-test`.
 
 Both browsers must set the same Relay URL and Relay public key in Status and choose Save and connect. The app persists these settings in each browser's local storage. The Relay key above is not the Juror-1 account public key.
 
+## Operator script
+
+The versioned source is `scripts/c8-fresh-jury-test-14d.mjs`. Copy this file into the operator-only `SkillX-C8-Fresh-Test` directory as `c8-fresh-jury-test-14d.mjs`, alongside `genesis-14d.json` and `inviter.key`, before running it. The script intentionally expects the repository directory `Decentralized-Service-Exchange-System-v1` to be the sibling of that test directory.
+
+Only this script is stored in Git. Never upload or commit `inviter.key`, `extra-keys.json`, any Juror vault, passwords, or private keys.
+
 ## Backend isolation
 
 The Preview API uses `SKILLX_RELAY_RPC_PROFILE=c8-14d-test`, which routes to:
