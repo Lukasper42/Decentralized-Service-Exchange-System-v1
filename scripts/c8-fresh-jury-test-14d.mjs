@@ -19,9 +19,9 @@ const DISPUTE_DEAL_ID = '00000000-0000-4000-8000-0000000000aa';
 const TRAINING_DEAL_COUNT = 48;
 const EVENTS_PER_TRAINING_DEAL = 9;
 const EXPECTED_SETUP_TIP = 6 + TRAINING_DEAL_COUNT * EVENTS_PER_TRAINING_DEAL + 6 + 12 + 1;
-const DEAL_AMOUNT = 10;
-const SELLER_AMOUNT = 9;
-const FEE_AMOUNT = 1;
+const DEAL_AMOUNT = 101;
+const SELLER_AMOUNT = 99;
+const FEE_AMOUNT = 2;
 const DEAL_DEADLINE_MS = 30 * 24 * 60 * 60 * 1000;
 
 let writesStarted = false;
@@ -151,6 +151,15 @@ async function main() {
 
   if (cfg.genesisPolicy.policyId !== EXPECTED_POLICY_ID || cfg.genesisPolicy.voteWindowMs !== EXPECTED_VOTING_WINDOW_MS) {
     throw new Error('The prepared Genesis does not contain the exact 14-day test policy. No ledger writes were attempted.');
+  }
+
+  // The domain Amount type has a minimum of 2. At 100 bp an escrow of 10
+  // produces a fee of 1, which cannot be represented by FeeBurned. Validate
+  // the training settlement against the active policy before any relay writes.
+  const expectedTrainingFee = Math.ceil((DEAL_AMOUNT * cfg.genesisPolicy.feeBp) / 10_000);
+  if (!Number.isSafeInteger(expectedTrainingFee) || expectedTrainingFee < 2 ||
+      FEE_AMOUNT !== expectedTrainingFee || SELLER_AMOUNT !== DEAL_AMOUNT - expectedTrainingFee) {
+    throw new Error('Training settlement amounts do not satisfy the active fee policy and Amount minimum. No ledger writes were attempted.');
   }
 
   // Keep the Relay mount path (for example /api/relay) when resolving /v1 routes.
