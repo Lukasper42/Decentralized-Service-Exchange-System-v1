@@ -248,6 +248,43 @@ async function main() {
   const jurors = [j1, j2, j3];
   const jurorKeys = new Set(jurors.map((identity) => identity.publicKey));
 
+  // Preflight the complete training schedule against immutable Genesis grants.
+  // Non-jurors fund 3 of 4 deals against each juror; juror/juror pairs split
+  // 2/2. This keeps every participant's gross escrow funding within 1,000.
+  const genesisDocument = JSON.parse(genesisText);
+  const grantBalances = new Map();
+  for (const grant of genesisDocument.grants ?? []) {
+    grantBalances.set(grant.recipient, (grantBalances.get(grant.recipient) ?? 0) + grant.amount);
+  }
+  const plannedBuyerCounts = new Map(participants.map((identity) => [identity.publicKey, 0]));
+  let plannedTrainingDeals = 0;
+  for (let i = 0; i < participants.length; i += 1) {
+    for (let j = i + 1; j < participants.length; j += 1) {
+      const first = participants[i];
+      const second = participants[j];
+      const firstIsJuror = jurorKeys.has(first.publicKey);
+      const secondIsJuror = jurorKeys.has(second.publicKey);
+      if (!firstIsJuror && !secondIsJuror) continue;
+      const firstBuyerRepeats = !firstIsJuror && secondIsJuror ? 3 :
+        firstIsJuror && secondIsJuror ? 2 : 0;
+      for (let repeat = 0; repeat < 4; repeat += 1) {
+        const buyer = repeat < firstBuyerRepeats ? first : second;
+        plannedBuyerCounts.set(buyer.publicKey, plannedBuyerCounts.get(buyer.publicKey) + 1);
+        plannedTrainingDeals += 1;
+      }
+    }
+  }
+  if (plannedTrainingDeals !== TRAINING_DEAL_COUNT) {
+    throw new Error(`Training plan contains ${plannedTrainingDeals} deals; expected ${TRAINING_DEAL_COUNT}. No ledger writes were attempted.`);
+  }
+  for (const identity of participants) {
+    const required = plannedBuyerCounts.get(identity.publicKey) * DEAL_AMOUNT;
+    const available = grantBalances.get(identity.publicKey) ?? 0;
+    if (required > available) {
+      throw new Error(`Genesis grant cannot fund the planned training schedule (required ${required}, available ${available}). No ledger writes were attempted.`);
+    }
+  }
+
   const makeClient = (identity) => new LedgerClient({
     transport: new HttpTransport({ baseUrl: relayUrl }),
     projector: new Projector(cfg),
@@ -306,36 +343,42 @@ async function main() {
           const dealId = `c8000000-0000-4000-8000-${trainingIndex.toString(16).padStart(12, '0')}`;
           const deadline = new Date(Date.now() + DEAL_DEADLINE_MS).toISOString();
           const hash = (char) => char.repeat(64);
+          const firstIsJuror = jurorKeys.has(first.publicKey);
+          const secondIsJuror = jurorKeys.has(second.publicKey);
+          const firstBuyerRepeats = !firstIsJuror && secondIsJuror ? 3 :
+            firstIsJuror && secondIsJuror ? 2 : 0;
+          const buyer = repeat < firstBuyerRepeats ? first : second;
+          const seller = buyer.publicKey === first.publicKey ? second : first;
 
-          await submit(`Training ${trainingIndex}/48 DealCreated`, first, 'DealCreated', {
+          await submit(`Training ${trainingIndex}/48 DealCreated`, buyer, 'DealCreated', {
             deal_id: dealId,
-            buyer: first.publicKey,
-            seller: second.publicKey,
+            buyer: buyer.publicKey,
+            seller: seller.publicKey,
             amount: DEAL_AMOUNT,
             criteria_hash: hash('c'),
             deadline,
           });
-          await consent(`Training ${trainingIndex}/48`, second, dealId);
-          await submit(`Training ${trainingIndex}/48 EscrowFunded`, first, 'EscrowFunded', {
+          await consent(`Training ${trainingIndex}/48`, seller, dealId);
+          await submit(`Training ${trainingIndex}/48 EscrowFunded`, buyer, 'EscrowFunded', {
             deal_id: dealId,
-            from: first.publicKey,
+            from: buyer.publicKey,
             amount: DEAL_AMOUNT,
           });
-          await submit(`Training ${trainingIndex}/48 DeliverableSubmitted`, second, 'DeliverableSubmitted', {
+          await submit(`Training ${trainingIndex}/48 DeliverableSubmitted`, seller, 'DeliverableSubmitted', {
             deal_id: dealId,
             content_hash: hash('d'),
             precheck_ref: null,
           });
-          await submit(`Training ${trainingIndex}/48 DealAccepted`, first, 'DealAccepted', {
+          await submit(`Training ${trainingIndex}/48 DealAccepted`, buyer, 'DealAccepted', {
             deal_id: dealId,
-            by: first.publicKey,
+            by: buyer.publicKey,
           });
-          await submit(`Training ${trainingIndex}/48 EscrowReleased`, first, 'EscrowReleased', {
+          await submit(`Training ${trainingIndex}/48 EscrowReleased`, buyer, 'EscrowReleased', {
             deal_id: dealId,
-            to: second.publicKey,
+            to: seller.publicKey,
             amount: SELLER_AMOUNT,
           });
-          await submit(`Training ${trainingIndex}/48 FeeBurned`, first, 'FeeBurned', {
+          await submit(`Training ${trainingIndex}/48 FeeBurned`, buyer, 'FeeBurned', {
             deal_id: dealId,
             amount: FEE_AMOUNT,
           });
