@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { canonical, eventHash, sha256Hex } from '../../crypto/src/index.js';
 import { RelayRig } from '../../testing/src/relay-fixtures.js';
-import type { SupabaseRpcPort } from '../../relay/src/supabase-ledger-store.js';
+import type { SupabaseLedgerRpcFunctions, SupabaseRpcPort } from '../../relay/src/supabase-ledger-store.js';
 import { SupabaseLedgerStore } from '../../relay/src/supabase-ledger-store.js';
 import type { LedgerEntry } from '../../relay/src/store.js';
 
@@ -14,15 +14,23 @@ interface Row {
 
 class FakeRpc implements SupabaseRpcPort {
   rows: Row[] = [];
+  private readonly functions: SupabaseLedgerRpcFunctions;
+
+  constructor(functions: SupabaseLedgerRpcFunctions = {
+    load: 'skillx_c8_runtime_ledger_load',
+    append: 'skillx_c8_runtime_ledger_append',
+  }) {
+    this.functions = functions;
+  }
 
   async rpc<T = unknown>(
     functionName: string,
     args: Readonly<Record<string, unknown>> = {},
   ): Promise<T> {
-    if (functionName === 'skillx_c8_runtime_ledger_load') {
+    if (functionName === this.functions.load) {
       return this.rows.map((row) => ({ ...row })) as T;
     }
-    if (functionName !== 'skillx_c8_runtime_ledger_append') {
+    if (functionName !== this.functions.append) {
       throw new Error('unexpected RPC function');
     }
 
@@ -105,6 +113,29 @@ test('Supabase ledger store rejects a corrupted persisted checksum', async () =>
   rpc.rows[0]!.checksum = '0'.repeat(64);
   const reopened = new SupabaseLedgerStore(rpc);
   await assert.rejects(() => reopened.open(), /checksum mismatch/);
+});
+
+test('Supabase ledger store can target an isolated 14-day test ledger', async () => {
+  const entries = validEntries();
+  const functions: SupabaseLedgerRpcFunctions = {
+    load: 'skillx_c8_14d_test_ledger_load',
+    append: 'skillx_c8_14d_test_ledger_append',
+  };
+  const rpc = new FakeRpc(functions);
+  const store = new SupabaseLedgerStore(rpc, functions);
+
+  await store.open();
+  assert.equal(store.tipSequence(), 0);
+  await store.append(entries[0]!);
+  assert.equal(store.tipSequence(), 1);
+  assert.equal(rpc.rows.length, 1);
+  await store.close();
+
+  const reopened = new SupabaseLedgerStore(rpc, functions);
+  await reopened.open();
+  assert.equal(reopened.tipSequence(), 1);
+  assert.equal(eventHash(reopened.all()[0]!.event), eventHash(entries[0]!.event));
+  await reopened.close();
 });
 
 test('stale serverless instances cannot append competing sequence numbers', async () => {
